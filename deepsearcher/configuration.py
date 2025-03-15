@@ -24,6 +24,7 @@ class Configuration:
         self.provide_settings = config_data["provide_settings"]
         self.query_settings = config_data["query_settings"]
         self.load_settings = config_data["load_settings"]
+        self.rbase_settings = config_data["rbase_settings"]
 
     def load_config_from_yaml(self, config_path: str):
         with open(config_path, "r") as file:

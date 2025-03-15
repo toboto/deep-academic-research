@@ -53,9 +53,25 @@ class Milvus(BaseVectorDB):
             schema.add_field("embedding", DataType.FLOAT_VECTOR, dim=dim)
             schema.add_field("text", DataType.VARCHAR, max_length=text_max_length)
             schema.add_field("reference", DataType.VARCHAR, max_length=reference_max_length)
+            schema.add_field("reference_id", DataType.INT64)
+            schema.add_field("keywords", DataType.ARRAY, element_type=DataType.VARCHAR, 
+                max_capacity=100, max_length=100)
+            schema.add_field("authors", DataType.ARRAY, element_type=DataType.VARCHAR,
+                max_capacity=100, max_length=100)
+            schema.add_field("author_ids", DataType.ARRAY, element_type=DataType.INT64,
+                max_capacity=500)
+            schema.add_field("corresponding_authors", DataType.ARRAY, element_type=DataType.VARCHAR,
+                max_capacity=20, max_length=100)
+            schema.add_field("corresponding_author_ids", DataType.ARRAY, element_type=DataType.INT64,
+                max_capacity=100)
             schema.add_field("metadata", DataType.JSON)
             index_params = self.client.prepare_index_params()
             index_params.add_index(field_name="embedding", metric_type=metric_type)
+            index_params.add_index(field_name="keywords", index_type="", index_name="keywords_idx")
+            index_params.add_index(field_name="authors", index_type="", index_name="authors_idx")
+            index_params.add_index(field_name="author_ids", index_type="", index_name="author_ids_idx")
+            index_params.add_index(field_name="corresponding_authors", index_type="", index_name="corresponding_authors_idx")
+            index_params.add_index(field_name="corresponding_author_ids", index_type="", index_name="corresponding_author_ids_idx")
             self.client.create_collection(
                 collection,
                 schema=schema,
@@ -74,30 +90,82 @@ class Milvus(BaseVectorDB):
         *args,
         **kwargs,
     ):
+        """
+        将数据插入到向量数据库
+        
+        参数:
+            collection: 集合名称
+            chunks: 要插入的数据块列表
+            batch_size: 批处理大小
+            
+        返回:
+            包含插入结果的字典，包括总插入数量和ID列表
+        """
         if not collection:
             collection = self.default_collection
-        texts = [chunk.text for chunk in chunks]
-        references = [chunk.reference for chunk in chunks]
-        metadatas = [chunk.metadata for chunk in chunks]
         embeddings = [chunk.embedding for chunk in chunks]
+        texts = [chunk.text for chunk in chunks]
+        references_list = [chunk.metadata.get('title', '') for chunk in chunks]
+        reference_ids_list = [chunk.metadata.get('article_id', 0) for chunk in chunks]
+        keywords_list = [chunk.metadata.get('keywords', []) for chunk in chunks]
+        authors_list = [chunk.metadata.get('authors', []) for chunk in chunks]
+        author_ids_list = [chunk.metadata.get('author_ids', []) for chunk in chunks]
+        corresponding_authors_list = [chunk.metadata.get('corresponding_authors', []) for chunk in chunks]
+        corresponding_author_ids_list = [chunk.metadata.get('corresponding_author_ids', []) for chunk in chunks]
+        metadatas = []
+        for chunk in chunks:
+            pubdate = chunk.metadata.get('pubdate')
+            if pubdate:
+                # 将MySQL date类型转换为时间戳
+                import datetime
+                # 检查pubdate类型，如果是date对象，转换为datetime对象
+                if isinstance(pubdate, datetime.date) and not isinstance(pubdate, datetime.datetime):
+                    # 将date转换为datetime
+                    pubdate = datetime.datetime.combine(pubdate, datetime.time())
+                pub_timestamp = int(pubdate.timestamp())
+            else:
+                pub_timestamp = 0
+            metadatas.append(f'{{"pub_timestamp": {pub_timestamp}}}')
 
         datas = [
             {
                 "embedding": embedding,
                 "text": text,
                 "reference": reference,
+                "reference_id": reference_id,
+                "keywords": keywords,
+                "authors": authors,
+                "author_ids": author_ids,
+                "corresponding_authors": corresponding_authors,
+                "corresponding_author_ids": corresponding_author_ids,
                 "metadata": metadata,
             }
-            for embedding, text, reference, metadata in zip(
-                embeddings, texts, references, metadatas
+            for embedding, text, reference, reference_id, keywords, authors, author_ids, corresponding_authors, corresponding_author_ids, metadata in zip(
+                embeddings, texts, references_list, reference_ids_list, keywords_list, authors_list, author_ids_list, corresponding_authors_list, corresponding_author_ids_list, metadatas
             )
         ]
         batch_datas = [datas[i : i + batch_size] for i in range(0, len(datas), batch_size)]
+        
+        # 初始化结果汇总
+        total_result = {
+            "insert_count": 0,
+            "ids": []
+        }
+        
         try:
             for batch_data in batch_datas:
-                self.client.insert(collection_name=collection, data=batch_data)
+                res = self.client.insert(collection_name=collection, data=batch_data)
+                # 汇总结果
+                if res:
+                    total_result["insert_count"] += res.get("insert_count", 0)
+                    if "ids" in res:
+                        # 检查ids的类型并进行适当处理
+                        total_result["ids"].extend(list(res["ids"]))
+            # 返回汇总结果
+            return total_result
         except Exception as e:
             log.critical(f"fail to insert data, error info: {e}")
+            return {"insert_count": 0, "ids": []}
 
     def search_data(
         self,
