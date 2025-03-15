@@ -1,53 +1,52 @@
 import os
-from typing import List, Union, Tuple, Dict, Any, Optional
+from typing import List, Tuple
 import tempfile
 import pymysql
-from langchain_core.documents import Document
 from tqdm import tqdm
 
-# from deepsearcher.configuration import embedding_model, vector_db, file_loader
 from deepsearcher import configuration
 from deepsearcher.loader.splitter import split_docs_to_chunks
 from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
+from deepsearcher.tools.log import error, warning
 
-# 全局变量，用于存储活跃的数据库连接
+# Global variable to store active database connection
 _active_connection = None
 
 def get_mysql_connection(rbase_db_config: dict) -> pymysql.connections.Connection:
     """
-    获取MySQL数据库连接，优先复用已有的活跃连接
+    Get MySQL database connection, prioritizing reuse of existing active connection
     
-    参数:
-        rbase_db_config: 数据库配置字典
+    Args:
+        rbase_db_config: Database configuration dictionary
         
-    返回:
-        MySQL数据库连接对象
+    Returns:
+        MySQL database connection object
     
-    异常:
-        ValueError: 如果数据库提供商不是MySQL
-        ConnectionError: 如果连接数据库失败
+    Raises:
+        ValueError: If the database provider is not MySQL
+        ConnectionError: If connection to database fails
     """
     global _active_connection
     
-    # 检查数据库提供商
+    # Check database provider
     if rbase_db_config.get('provider', '').lower() != 'mysql':
-        raise ValueError("当前仅支持MySQL数据库")
+        raise ValueError("Currently only MySQL database is supported")
     
-    # 如果已有活跃连接，尝试复用
+    # If there is an active connection, try to reuse it
     if _active_connection is not None:
         try:
-            # 测试连接是否有效
+            # Test if the connection is valid
             _active_connection.ping(reconnect=True)
             return _active_connection
         except Exception:
-            # 连接已失效，关闭并创建新连接
+            # Connection is invalid, close and create a new one
             try:
                 _active_connection.close()
             except Exception:
                 pass
             _active_connection = None
     
-    # 创建新连接
+    # Create a new connection
     try:
         conn = pymysql.connect(
             host=rbase_db_config.get('config', {}).get('host', 'localhost'), 
@@ -61,11 +60,11 @@ def get_mysql_connection(rbase_db_config: dict) -> pymysql.connections.Connectio
         _active_connection = conn
         return conn
     except Exception as e:
-        raise ConnectionError(f"连接MySQL数据库失败: {e}")
+        raise ConnectionError(f"Failed to connect to MySQL database: {e}")
 
 def close_mysql_connection():
     """
-    关闭当前活跃的MySQL连接
+    Close the current active MySQL connection
     """
     global _active_connection
     if _active_connection is not None:
@@ -91,70 +90,70 @@ def init_vector_db(collection_name: str, collection_description: str, force_new_
 
 def _process_authors(cursor, article: RbaseArticle) -> Tuple[List[str], List[int], List[str], List[int]]:
     """
-    处理作者信息，获取作者ID并为RbaseArticle对象设置作者
+    Process author information, get author IDs and set authors for RbaseArticle object
     
-    参数:
-        cursor: 数据库游标
-        article: RbaseArticle对象
+    Args:
+        cursor: Database cursor
+        article: RbaseArticle object
         
-    返回:
-        作者列表和作者ID列表的元组
+    Returns:
+        Tuple of author lists and author ID lists
     """
-    # 确保参数不为None
+    # Ensure parameters are not None
     authors = article.authors or ""
     corresponding_authors = article.corresponding_authors or ""
     
-    # 处理普通作者
+    # Process regular authors
     author_list = [author.strip() for author in authors.split(',') if author.strip()]
     
-    # 处理通讯作者
+    # Process corresponding authors
     corresponding_author_list = [author.strip() for author in corresponding_authors.split(',') if author.strip()]
     
-    # 合并作者列表并去重
+    # Merge author lists and remove duplicates
     all_authors_set = set(author_list + corresponding_author_list)
     all_authors = list(all_authors_set)
     
     author_ids = []
     corresponding_author_ids = []
     
-    # 查询每个作者的ID并创建RbaseAuthor对象
+    # Query each author's ID and create RbaseAuthor objects
     for author_name in all_authors:
-        # 判断是英文名还是中文名
+        # Determine if it's an English name or Chinese name
         is_english = all(ord(c) < 128 for c in author_name)
         
-        # 创建作者对象
+        # Create author object
         if is_english:
             author_obj = RbaseAuthor(name=author_name, ename=author_name)
-            # 查询英文名
+            # Query by English name
             author_sql = """
             SELECT id FROM author WHERE ename = %s ORDER BY modified DESC
             """
             cursor.execute(author_sql, (author_name,))
         else:
             author_obj = RbaseAuthor(name=author_name, cname=author_name)
-            # 查询中文名
+            # Query by Chinese name
             author_sql = """
             SELECT id FROM author WHERE cname = %s ORDER BY modified DESC
             """
             cursor.execute(author_sql, (author_name,))
         
-        # 获取所有匹配的作者ID
+        # Get all matching author IDs
         author_results = cursor.fetchall()
         if author_results:
-            # 提取所有作者ID
+            # Extract all author IDs
             ids = [result['id'] for result in author_results]
-            # 设置作者ID
+            # Set author IDs
             author_obj.set_author_ids(ids)
-            # 添加到ID列表
+            # Add to ID list
             author_ids.extend(ids)
             
-            # 如果是通讯作者，也添加到通讯作者ID列表
+            # If it's a corresponding author, also add to corresponding author ID list
             is_corresponding = author_name in corresponding_author_list
             author_obj.is_corresponding = is_corresponding
             if is_corresponding:
                 corresponding_author_ids.extend(ids)
         
-        # 添加到文章中
+        # Add to article
         article.set_author(author_obj)
     
     return all_authors, author_ids, corresponding_author_list, corresponding_author_ids
@@ -162,24 +161,24 @@ def _process_authors(cursor, article: RbaseArticle) -> Tuple[List[str], List[int
 
 def _process_keywords(source_keywords: str, mesh_keywords: str) -> List[str]:
     """
-    处理关键词信息
+    Process keyword information
     
-    参数:
-        source_keywords: 来源关键词字符串，分号分隔
-        mesh_keywords: MeSH关键词字符串，分号分隔
+    Args:
+        source_keywords: Source keyword string, semicolon separated
+        mesh_keywords: MeSH keyword string, semicolon separated
         
-    返回:
-        去重后的合并关键词列表
+    Returns:
+        Deduplicated merged keyword list
     """
-    # 确保参数不为None
+    # Ensure parameters are not None
     source_keywords = source_keywords or ""
     mesh_keywords = mesh_keywords or ""
     
-    # 按分号分割关键词并去除空白
+    # Split keywords by semicolon and remove whitespace
     source_keywords_list = [kw.strip() for kw in source_keywords.split(';') if kw.strip()]
     mesh_keywords_list = [kw.strip() for kw in mesh_keywords.split(';') if kw.strip()]
     
-    # 合并关键词列表并去重
+    # Merge keyword lists and remove duplicates
     keywords_set = set(source_keywords_list + mesh_keywords_list)
     keywords_list = list(keywords_set)
     
@@ -202,10 +201,10 @@ def _download_file_content(url: str) -> str:
     import requests
     import urllib3
     
-    # 禁用SSL验证，解决SSL连接问题
+    # Disable SSL verification to resolve SSL connection issues
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     response = requests.get(url, verify=False)
-    response.raise_for_status()  # 确保请求成功
+    response.raise_for_status()  # Ensure request was successful
     
     return response.text
 
@@ -219,29 +218,29 @@ def insert_to_vector_db(rbase_config: dict,
                       chunk_overlap: int = 100,
                       batch_size: int = 256):
     """
-    将文章数据加载到向量数据库
+    Load article data into vector database
     
-    参数:
-        rbase_config: 配置字典，包含OSS配置和数据库配置
-        articles: RbaseArticle对象列表，包含要处理的文章数据
-        collection_name: 向量数据库集合名称
-        collection_description: 向量数据库集合描述
-        force_new_collection: 是否强制创建新集合
-        chunk_size: 文本分块大小
-        chunk_overlap: 文本分块重叠大小
-        batch_size: 批处理大小
+    Args:
+        rbase_config: Configuration dictionary containing OSS and database configurations
+        articles: List of RbaseArticle objects containing article data to process
+        collection_name: Vector database collection name
+        collection_description: Vector database collection description
+        force_new_collection: Whether to force create a new collection
+        chunk_size: Text chunk size
+        chunk_overlap: Text chunk overlap size
+        batch_size: Batch processing size
     """
-    # 检查OSS配置
+    # Check OSS configuration
     rbase_oss_config = rbase_config.get('oss', {})
     
-    # 确保OSS主机地址不为空
+    # Ensure OSS host address is not empty
     if not rbase_oss_config.get('host'):
-        raise ValueError("OSS主机地址不能为空")
+        raise ValueError("OSS host address cannot be empty")
     
-    # 检查数据库配置
+    # Check database configuration
     rbase_db_config = rbase_config.get('database', {})
     
-    # 初始化向量数据库
+    # Initialize vector database
     vector_db = configuration.vector_db
     embedding_model = configuration.embedding_model
     file_loader = configuration.file_loader
@@ -250,43 +249,43 @@ def insert_to_vector_db(rbase_config: dict,
         collection_name = vector_db.default_collection
     collection_name = collection_name.replace(" ", "_").replace("-", "_")
     
-    # 初始化向量数据库集合
+    # Initialize vector database collection
     init_vector_db(collection_name, collection_description, force_new_collection)
     
-    # 获取MySQL连接
+    # Get MySQL connection
     conn = get_mysql_connection(rbase_db_config)
     
     all_docs = []
     
     try:
         with conn.cursor() as cursor:
-            # 处理每篇文章
-            for article in tqdm(articles, desc="处理文章文件"):
+            # Process each article
+            for article in tqdm(articles, desc="Processing article files"):
                 txt_file_path = article.txt_file
                 
-                # 额外检查txt_file_path是否为空或不是以.md结尾
+                # Additional check if txt_file_path is empty or not ending with .md
                 if not txt_file_path or not txt_file_path.endswith('.md'):
-                    print(f"跳过无效的文件路径: {txt_file_path}")
+                    warning(f"Skipping invalid file path: {txt_file_path}")
                     continue
                 
-                # 处理作者信息
+                # Process author information
                 _process_authors(cursor, article)
                 
-                # 处理关键词
+                # Process keywords
                 keywords_list = _process_keywords(
                     article.source_keywords, 
                     article.mesh_keywords
                 )
                 
-                # 创建临时文件保存markdown内容
+                # Create temporary file to save markdown content
                 with tempfile.NamedTemporaryFile(suffix='.md', delete=False) as temp_file:
                     temp_path = temp_file.name
                     
-                    # 从OSS服务器下载文件内容到临时文件
-                    # 确保host和txt_file_path都不为空
+                    # Download file content from OSS server to temporary file
+                    # Ensure both host and txt_file_path are not empty
                     host = rbase_oss_config.get('host', '')
                     if not host or not txt_file_path:
-                        print(f"跳过下载：OSS主机地址或文件路径为空 - host: {host}, path: {txt_file_path}")
+                        warning(f"Skipping download: OSS host address or file path is empty - host: {host}, path: {txt_file_path}")
                         continue
                         
                     full_url = host + txt_file_path
@@ -295,15 +294,15 @@ def insert_to_vector_db(rbase_config: dict,
                         content = _download_file_content(full_url)
                         temp_file.write(content.encode('utf-8'))
                     except Exception as e:
-                        print(f"下载文件失败: {e}, URL: {full_url}")
+                        error(f"Failed to download file: {e}, URL: {full_url}")
                         continue
                 
-                # 加载临时文件
+                # Load temporary file
                 docs = file_loader.load_file(temp_path)
                 
-                # 为每个文档添加元数据
+                # Add metadata to each document
                 for doc in docs:
-                    # 获取作者信息
+                    # Get author information
                     author_names = [author.name for author in article.author_objects]
                     author_ids = []
                     corresponding_author_names = []
@@ -330,49 +329,49 @@ def insert_to_vector_db(rbase_config: dict,
                 
                 all_docs.extend(docs)
                 
-                # 删除临时文件
+                # Delete temporary file
                 os.unlink(temp_path)
             
-            # 分割文档为块
+            # Split documents into chunks
             chunks = split_docs_to_chunks(
                 all_docs,
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
             )
             
-            # 嵌入向量
+            # Embed vectors
             chunks = embedding_model.embed_chunks(chunks, batch_size=batch_size)
             
-            # 插入向量数据库
+            # Insert into vector database
             return vector_db.insert_data(collection=collection_name, chunks=chunks)
             
     except Exception as e:
-        # 发生异常时关闭连接
+        # Close connection when exception occurs
         close_mysql_connection()
-        raise Exception(f"处理文章数据失败: {e}")
+        raise Exception(f"Failed to process article data: {e}")
 
 
 def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
     """
-    从Rbase数据库加载文章数据到向量数据库
+    Load article data from Rbase database to vector database
     
-    参数:
-        rbase_config: 数据库配置字典
-        offset: 查询起始位置
-        limit: 查询数量限制
+    Args:
+        rbase_config: Database configuration dictionary
+        offset: Query start position
+        limit: Query limit count
         
-    返回:
-        RbaseArticle对象列表
+    Returns:
+        List of RbaseArticle objects
     """
-    # 获取MySQL连接
+    # Get MySQL connection
     rbase_db_config = rbase_config.get('database', {})
     conn = get_mysql_connection(rbase_db_config)
     
     pdf_files = []
     try:
         with conn.cursor() as cursor:
-            # 查询article_pdf_file表中符合条件的数据，并确保raw_article_id在article表中存在
-            # 同时确保txt_file不为空且以.md结尾
+            # Query data from article_pdf_file table that meets the conditions, and ensure raw_article_id exists in article table
+            # Also ensure txt_file is not empty and ends with .md
             sql = """
             SELECT apf.id, apf.raw_article_id, apf.txt_file, 
                    a.title, a.authors, a.corresponding_authors, 
@@ -384,13 +383,13 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
             AND apf.txt_file LIKE '%%.md'
             ORDER BY apf.modified DESC LIMIT %s OFFSET %s
             """
-            # 使用参数化查询，避免字符串格式化问题
+            # Use parameterized query to avoid string formatting issues
             cursor.execute(sql, (limit, offset))
             pdf_files = cursor.fetchall()
     except Exception as e:
-        # 发生异常时关闭连接
+        # Close connection when exception occurs
         close_mysql_connection()
-        raise Exception(f"处理数据库数据失败: {e}")
+        raise Exception(f"Failed to process database data: {e}")
     
     return [RbaseArticle(pdf) for pdf in pdf_files]
             

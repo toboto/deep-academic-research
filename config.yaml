@@ -126,3 +126,18 @@ query_settings:
 load_settings:
   chunk_size: 1500
   chunk_overlap: 100
+
+rbase_settings:
+  database:
+    provider: "mysql"
+    config:
+      host: "localhost"
+      port: 3306
+      database: "rbase"
+      username: "root"
+      password: "123456"
+  oss:
+    host: "http://localhost/"
+  dict_path:
+    cn: "database/dicts/rbase_dict_cn.txt"
+    en: "database/dicts/rbase_dict_en.txt"
