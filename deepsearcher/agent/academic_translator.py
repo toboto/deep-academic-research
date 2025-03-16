@@ -56,7 +56,8 @@ class AcademicTranslator(BaseAgent):
         """
         Load jieba user dictionary.
         
-        Find and load rbase_dict_cn.txt and rbase_dict_en.txt files.
+        Find and load rbase_dict_cn.txt for jieba segmentation.
+        For rbase_dict_en.txt, store the words in a sorted list for English to Chinese translation.
         """
         # Possible dictionary paths
         possible_cn_paths = [
@@ -67,6 +68,11 @@ class AcademicTranslator(BaseAgent):
             self.dict_config.get("en", "rbase_dict_en.txt"),
             os.path.join(os.getcwd(), "rbase_dict_en.txt"),
         ]
+        
+        # Initialize English terms dictionary
+        self.en_terms = {}
+        # Initialize sorted English terms list (multi-word terms first, sorted by length)
+        self.sorted_en_terms = []
         
         # Find Chinese dictionary
         cn_dict_path = None
@@ -82,16 +88,44 @@ class AcademicTranslator(BaseAgent):
                 en_dict_path = path
                 break
         
-        # Load dictionary
+        # Load Chinese dictionary into jieba
         if cn_dict_path:
             jieba.load_userdict(cn_dict_path)
             debug(f"Loaded Chinese user dictionary: {cn_dict_path}")
         else:
             warning("Chinese user dictionary file rbase_dict_cn.txt not found")
         
+        # Load English dictionary into a sorted list
         if en_dict_path:
-            jieba.load_userdict(en_dict_path)
-            debug(f"Loaded English user dictionary: {en_dict_path}")
+            try:
+                with open(en_dict_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if len(parts) >= 3:
+                            # Format: [phrase] [freq] [part-of-speech]
+                            # The phrase might contain spaces, so we need to handle it carefully
+                            pos = parts[-1]
+                            freq = parts[-2]
+                            phrase = ' '.join(parts[:-2])
+                            
+                            # Store the English term with its part of speech
+                            self.en_terms[phrase] = pos
+                
+                # Pre-sort English terms: multi-word terms first (sorted by length), then single words
+                multi_word_terms = [term for term in self.en_terms.keys() if ' ' in term]
+                single_word_terms = [term for term in self.en_terms.keys() if ' ' not in term]
+                
+                # Sort multi-word terms by length (longest first)
+                multi_word_terms.sort(key=len, reverse=True)
+                # Sort single word terms alphabetically
+                single_word_terms.sort()
+                
+                # Combine the sorted lists
+                self.sorted_en_terms = multi_word_terms + single_word_terms
+                
+                debug(f"Loaded {len(self.en_terms)} English terms from: {en_dict_path}")
+            except Exception as e:
+                error(f"Failed to load English dictionary: {e}")
         else:
             warning("English user dictionary file rbase_dict_en.txt not found")
     
@@ -205,18 +239,25 @@ class AcademicTranslator(BaseAgent):
                         glossary[word] = translation
         
         elif source_lang == 'en':
-            # Simple segmentation of English text (split by spaces)
-            words = re.findall(r'\b[A-Za-z][\w-]*\b', text)
-            
-            # Query the translation of each word
-            for word in words:
-                # Skip common English stop words and short words
-                if len(word) <= 2 or word.lower() in {'the', 'and', 'of', 'to', 'in', 'is', 'it', 'for', 'as', 'on', 'at', 'by', 'with'}:
-                    continue
-                
-                translation = self._query_term_translation(word, 'en', 'zh')
-                if translation:
-                    glossary[word] = translation
+            # Use the pre-sorted English terms list
+            for term in self.sorted_en_terms:
+                # For multi-word terms, check if they exist in the text
+                if ' ' in term and term.lower() in text.lower():
+                    translation = self._query_term_translation(term, 'en', 'zh')
+                    if translation:
+                        glossary[term] = translation
+                # For single words, use regex to match whole words only
+                elif ' ' not in term:
+                    # Create a regex pattern to match the word as a whole word
+                    pattern = r'\b' + re.escape(term) + r'\b'
+                    if re.search(pattern, text, re.IGNORECASE):
+                        # Skip common English stop words and short words
+                        if len(term) <= 2 or term.lower() in {'the', 'and', 'of', 'to', 'in', 'is', 'it', 'for', 'as', 'on', 'at', 'by', 'with'}:
+                            continue
+                        
+                        translation = self._query_term_translation(term, 'en', 'zh')
+                        if translation:
+                            glossary[term] = translation
         
         return glossary
     
