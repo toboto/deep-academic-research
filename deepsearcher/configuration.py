@@ -14,7 +14,7 @@ from deepsearcher.vector_db.base import BaseVectorDB
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_YAML_PATH = os.path.join(current_dir, "..", "config.yaml")
 
-FeatureType = Literal["llm", "embedding", "file_loader", "web_crawler", "vector_db"]
+FeatureType = Literal["llm", "embedding", "file_loader", "web_crawler", "vector_db", "reasoning_llm", "writing_llm"]
 
 
 class Configuration:
@@ -24,7 +24,7 @@ class Configuration:
         self.provide_settings = config_data["provide_settings"]
         self.query_settings = config_data["query_settings"]
         self.load_settings = config_data["load_settings"]
-        self.rbase_settings = config_data["rbase_settings"]
+        self.rbase_settings = config_data.get("rbase_settings", {})
 
     def load_config_from_yaml(self, config_path: str):
         with open(config_path, "r") as file:
@@ -72,6 +72,12 @@ class ModuleFactory:
 
     def create_llm(self) -> BaseLLM:
         return self._create_module_instance("llm", "deepsearcher.llm")
+        
+    def create_reasoning_llm(self) -> BaseLLM:
+        return self._create_module_instance("reasoning_llm", "deepsearcher.llm")
+        
+    def create_writing_llm(self) -> BaseLLM:
+        return self._create_module_instance("writing_llm", "deepsearcher.llm")
 
     def create_embedding(self) -> BaseEmbedding:
         return self._create_module_instance("embedding", "deepsearcher.embedding")
@@ -90,6 +96,8 @@ config = Configuration()
 
 module_factory: ModuleFactory = None
 llm: BaseLLM = None
+reasoning_llm: BaseLLM = None
+writing_llm: BaseLLM = None
 embedding_model: BaseEmbedding = None
 file_loader: BaseLoader = None
 vector_db: BaseVectorDB = None
@@ -102,6 +110,8 @@ def init_config(config: Configuration):
     global \
         module_factory, \
         llm, \
+        reasoning_llm, \
+        writing_llm, \
         embedding_model, \
         file_loader, \
         vector_db, \
@@ -110,6 +120,18 @@ def init_config(config: Configuration):
         naive_rag
     module_factory = ModuleFactory(config)
     llm = module_factory.create_llm()
+    
+    # Initialize reasoning and writing models if they are configured
+    if "reasoning_llm" in config.provide_settings:
+        reasoning_llm = module_factory.create_reasoning_llm()
+    else:
+        reasoning_llm = llm  # Fallback to the default LLM if not configured
+        
+    if "writing_llm" in config.provide_settings:
+        writing_llm = module_factory.create_writing_llm()
+    else:
+        writing_llm = llm  # Fallback to the default LLM if not configured
+        
     embedding_model = module_factory.create_embedding()
     file_loader = module_factory.create_file_loader()
     web_crawler = module_factory.create_web_crawler()

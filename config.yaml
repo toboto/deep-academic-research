@@ -6,6 +6,22 @@ provide_settings:
 #      api_key: "sk-xxxx"  # Uncomment to override the `OPENAI_API_KEY` set in the environment variable
 #      base_url: ""
 
+  reasoning_llm:
+    provider: "OpenAI"
+    config:
+      model: "o1-preview"  # Using a more powerful model for reasoning tasks
+      stream: true  # 启用流式输出
+      verbose: true  # 启用详细日志
+#      api_key: "sk-xxxx"  # Uncomment to override the `OPENAI_API_KEY` set in the environment variable
+#      base_url: ""
+
+  writing_llm:
+    provider: "OpenAI"
+    config:
+      model: "gpt-4o"  # Using a model optimized for writing tasks
+#      api_key: "sk-xxxx"  # Uncomment to override the `OPENAI_API_KEY` set in the environment variable
+#      base_url: ""
+
 #    provider: "DeepSeek"
 #    config:
 #      model: "deepseek-reasoner"
