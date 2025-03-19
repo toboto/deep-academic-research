@@ -11,12 +11,13 @@ import os
 import re
 import jieba
 import jieba.posseg as pseg
+import pymysql
 from typing import Dict, List, Tuple, Optional
 
 from deepsearcher.agent.base import BaseAgent, describe_class
-from deepsearcher import configuration
-from deepsearcher.rbase_db_loading import get_mysql_connection
 from deepsearcher.tools.log import color_print, error, warning, debug
+from deepsearcher.llm.base import BaseLLM
+from deepsearcher.agent.collection_router import CollectionRouter
 
 @describe_class(
     "This Agent is used to translate academic texts into specified languages, with special focus on accurate translation of professional terminology."
@@ -30,7 +31,7 @@ class AcademicTranslator(BaseAgent):
     Currently only supports translation between Chinese and English.
     """
     
-    def __init__(self, **kwargs):
+    def __init__(self, llm: BaseLLM, rbase_settings: dict, **kwargs):
         """
         Initialize the AcademicTranslator class.
         
@@ -39,18 +40,40 @@ class AcademicTranslator(BaseAgent):
         super().__init__(**kwargs)
         
         # Get LLM
-        self.llm = configuration.llm
+        self.llm = llm
         
         # Get database configuration and connect to database
-        self.db_config = configuration.config.rbase_settings["database"]
-        self.dict_config = configuration.config.rbase_settings["dict_path"]
-        self.db_connection = get_mysql_connection(self.db_config)
+        self.db_config = rbase_settings["database"]
+        self.dict_config = rbase_settings["dict_path"]
+        self.db_connection = self._get_mysql_connection()
         
         # Load jieba user dictionary
         self._load_jieba_dict()
         
         # Cache previously queried term translations to avoid duplicate database queries
         self.term_cache = {}
+    
+    def _get_mysql_connection(self) -> pymysql.connections.Connection:
+        """
+        内部方法，创建MySQL数据库连接
+        
+        返回:
+            MySQL数据库连接对象
+        """
+        try:
+            conn = pymysql.connect(
+                host=self.db_config.get('config', {}).get('host', 'localhost'), 
+                port=int(self.db_config.get('config', {}).get('port', 3306)),
+                user=self.db_config.get('config', {}).get('username', ''), 
+                password=self.db_config.get('config', {}).get('password', ''),
+                database=self.db_config.get('config', {}).get('database', ''), 
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            return conn
+        except Exception as e:
+            error(f"Failed to connect to MySQL database: {e}")
+            raise ConnectionError(f"Failed to connect to MySQL database: {e}")
     
     def _load_jieba_dict(self) -> None:
         """

@@ -35,7 +35,7 @@ def test_zh_to_en():
     configuration.config = config
     configuration.init_config(config)
     
-    translator = AcademicTranslator()
+    translator = AcademicTranslator(llm=configuration.llm, rbase_settings=config.rbase_settings)
     
     # Test translation
     color_print("\n===== Chinese to English Translation Test =====")
@@ -64,7 +64,7 @@ def test_en_to_zh():
     configuration.config = config
     configuration.init_config(config)
     
-    translator = AcademicTranslator()
+    translator = AcademicTranslator(llm=configuration.llm, rbase_settings=config.rbase_settings)
     
     # Test translation
     color_print("\n===== English to Chinese Translation Test =====")
@@ -92,7 +92,7 @@ def test_same_language():
     configuration.config = config
     configuration.init_config(config)
     
-    translator = AcademicTranslator()
+    translator = AcademicTranslator(llm=configuration.llm, rbase_settings=config.rbase_settings)
     
     # Test translation
     color_print("\n===== Same Language Test =====")
@@ -131,7 +131,7 @@ def test_mixed_language():
     configuration.config = config
     configuration.init_config(config)
     
-    translator = AcademicTranslator()
+    translator = AcademicTranslator(llm=configuration.llm, rbase_settings=config.rbase_settings)
     
     # Test translation
     color_print("\n===== Mixed Language Test =====")

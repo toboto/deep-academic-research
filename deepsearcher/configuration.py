@@ -10,6 +10,9 @@ from deepsearcher.llm.base import BaseLLM
 from deepsearcher.loader.file_loader.base import BaseLoader
 from deepsearcher.loader.web_crawler.base import BaseCrawler
 from deepsearcher.vector_db.base import BaseVectorDB
+from deepsearcher.agent.overview_rag import OverviewRAG
+from deepsearcher.agent.academic_translator import AcademicTranslator
+from deepsearcher.tools import log
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_YAML_PATH = os.path.join(current_dir, "..", "config.yaml")
@@ -104,6 +107,8 @@ vector_db: BaseVectorDB = None
 web_crawler: BaseCrawler = None
 default_searcher: RAGRouter = None
 naive_rag: NaiveRAG = None
+academic_translator: AcademicTranslator = None
+overview_rag: OverviewRAG = None
 
 
 def init_config(config: Configuration):
@@ -117,7 +122,9 @@ def init_config(config: Configuration):
         vector_db, \
         web_crawler, \
         default_searcher, \
-        naive_rag
+        naive_rag, \
+        academic_translator, \
+        overview_rag
     module_factory = ModuleFactory(config)
     llm = module_factory.create_llm()
     
@@ -166,3 +173,35 @@ def init_config(config: Configuration):
         route_collection=True,
         text_window_splitter=True,
     )
+
+    # Initialize AcademicTranslator
+    academic_translator = AcademicTranslator(llm=llm, rbase_settings=config.rbase_settings)
+
+    # Initialize OverviewRAG
+    try:
+        # Initialize reasoning and writing models if not already initialized globally
+        if reasoning_llm is None and "reasoning_llm" in config.provide_settings:
+            reasoning_llm = module_factory.create_reasoning_llm()
+        elif reasoning_llm is None:
+            reasoning_llm = llm  # Fallback to default LLM
+        
+        if writing_llm is None and "writing_llm" in config.provide_settings:
+            writing_llm = module_factory.create_writing_llm()
+        elif writing_llm is None:
+            writing_llm = llm  # Fallback to default LLM
+        
+        # Initialize OverviewRAG
+        overview_rag = OverviewRAG(
+            llm=llm,
+            reasoning_llm=reasoning_llm,
+            writing_llm=writing_llm,
+            translator=academic_translator,
+            embedding_model=embedding_model,
+            vector_db=vector_db,
+            text_window_splitter=config.rbase_settings.get("overview_rag", {}).get("text_window_splitter", True)
+        )
+        
+        log.info("OverviewRAG initialized successfully")
+    except Exception as e:
+        log.error(f"Failed to initialize OverviewRAG: {e}")
+        overview_rag = None

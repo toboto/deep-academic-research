@@ -28,7 +28,18 @@ class RbaseArticle:
         self.corresponding_authors = kwargs.get('corresponding_authors') or article_data.get('corresponding_authors', '')
         self.source_keywords = kwargs.get('source_keywords') or article_data.get('source_keywords', '')
         self.mesh_keywords = kwargs.get('mesh_keywords') or article_data.get('mesh_keywords', '')
-        self.pubdate = kwargs.get('pubdate') or article_data.get('pubdate', '')
+        self.impact_factor = kwargs.get('impact_factor') or article_data.get('impact_factor', 0)
+        self.pubdate = kwargs.get('pubdate') or article_data.get('pubdate', None)
+        if self.pubdate is not None:
+            # 将datetime.date类型转换为datetime.datetime，然后获取时间戳
+            import datetime
+            if isinstance(self.pubdate, datetime.date) and not isinstance(self.pubdate, datetime.datetime):
+                self.pubdate = datetime.datetime.combine(self.pubdate, datetime.time()).timestamp()
+            else:
+                # 如果已经是datetime.datetime类型，直接获取时间戳
+                self.pubdate = self.pubdate.timestamp()
+        else:
+            self.pubdate = 0
         self.author_objects = []
 
     def set_author(self, author: RbaseAuthor):

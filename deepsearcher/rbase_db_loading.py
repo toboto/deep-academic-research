@@ -324,6 +324,7 @@ def insert_to_vector_db(rbase_config: dict,
                         'keywords': keywords_list,
                         'pubdate': article.pubdate,
                         'article_id': article.article_id,
+                        'impact_factor': article.impact_factor,
                         'reference': f"Article ID: {article.article_id}"
                     })
                 
@@ -374,8 +375,8 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
             # Also ensure txt_file is not empty and ends with .md
             sql = """
             SELECT apf.id, apf.raw_article_id, apf.txt_file, 
-                   a.title, a.authors, a.corresponding_authors, 
-                   a.source_keywords, a.mesh_keywords, a.pubdate
+                   a.title, a.authors, a.corresponding_authors,
+                   a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate
             FROM article_pdf_file apf
             INNER JOIN article a ON apf.raw_article_id = a.id
             WHERE apf.user_id = 0 AND apf.status = 1 

@@ -196,8 +196,12 @@ pyrightconfig.json
 
 .DS_Store
 
+# database files
 *.db
 database/
 
+# config files
 *.yaml
 
+# output files
+outputs/

@@ -64,7 +64,9 @@ class Milvus(BaseVectorDB):
                 max_capacity=20, max_length=100)
             schema.add_field("corresponding_author_ids", DataType.ARRAY, element_type=DataType.INT64,
                 max_capacity=100)
-            schema.add_field("metadata", DataType.JSON)
+            schema.add_field("impact_factor", DataType.FLOAT)
+            schema.add_field("pubdate", DataType.INT64)
+            schema.add_field("metadata", DataType.JSON, nullable=True)
             index_params = self.client.prepare_index_params()
             index_params.add_index(field_name="embedding", metric_type=metric_type)
             index_params.add_index(field_name="keywords", index_type="", index_name="keywords_idx")
@@ -72,6 +74,8 @@ class Milvus(BaseVectorDB):
             index_params.add_index(field_name="author_ids", index_type="", index_name="author_ids_idx")
             index_params.add_index(field_name="corresponding_authors", index_type="", index_name="corresponding_authors_idx")
             index_params.add_index(field_name="corresponding_author_ids", index_type="", index_name="corresponding_author_ids_idx")
+            index_params.add_index(field_name="impact_factor", index_type="", index_name="impact_factor_idx")
+            index_params.add_index(field_name="pubdate", index_type="", index_name="pubdate_idx")
             self.client.create_collection(
                 collection,
                 schema=schema,
@@ -112,20 +116,8 @@ class Milvus(BaseVectorDB):
         author_ids_list = [chunk.metadata.get('author_ids', []) for chunk in chunks]
         corresponding_authors_list = [chunk.metadata.get('corresponding_authors', []) for chunk in chunks]
         corresponding_author_ids_list = [chunk.metadata.get('corresponding_author_ids', []) for chunk in chunks]
-        metadatas = []
-        for chunk in chunks:
-            pubdate = chunk.metadata.get('pubdate')
-            if pubdate:
-                # 将MySQL date类型转换为时间戳
-                import datetime
-                # 检查pubdate类型，如果是date对象，转换为datetime对象
-                if isinstance(pubdate, datetime.date) and not isinstance(pubdate, datetime.datetime):
-                    # 将date转换为datetime
-                    pubdate = datetime.datetime.combine(pubdate, datetime.time())
-                pub_timestamp = int(pubdate.timestamp())
-            else:
-                pub_timestamp = 0
-            metadatas.append(f'{{"pub_timestamp": {pub_timestamp}}}')
+        impact_factor_list = [chunk.metadata.get('impact_factor', 0) for chunk in chunks]
+        pubdate_list = [int(chunk.metadata.get('pubdate', 0)) for chunk in chunks]
 
         datas = [
             {
@@ -138,11 +130,15 @@ class Milvus(BaseVectorDB):
                 "author_ids": author_ids,
                 "corresponding_authors": corresponding_authors,
                 "corresponding_author_ids": corresponding_author_ids,
-                "metadata": metadata,
+                "impact_factor": impact_factor,
+                "pubdate": pubdate,
             }
-            for embedding, text, reference, reference_id, keywords, authors, author_ids, corresponding_authors, corresponding_author_ids, metadata in zip(
-                embeddings, texts, references_list, reference_ids_list, keywords_list, authors_list, author_ids_list, corresponding_authors_list, corresponding_author_ids_list, metadatas
-            )
+            for embedding, text, reference, reference_id, keywords, authors, author_ids, \
+                corresponding_authors, corresponding_author_ids, impact_factor, pubdate in zip(
+                    embeddings, texts, references_list, reference_ids_list, keywords_list, 
+                    authors_list, author_ids_list, corresponding_authors_list, 
+                    corresponding_author_ids_list, impact_factor_list, pubdate_list
+                )
         ]
         batch_datas = [datas[i : i + batch_size] for i in range(0, len(datas), batch_size)]
         
@@ -182,7 +178,7 @@ class Milvus(BaseVectorDB):
                 collection_name=collection,
                 data=[vector],
                 limit=top_k,
-                output_fields=["embedding", "text", "reference", "metadata"],
+                output_fields=["embedding", "text", "reference", "reference_id", "pubdate", "impact_factor"],
                 timeout=10,
             )
 
@@ -192,7 +188,10 @@ class Milvus(BaseVectorDB):
                     text=b["entity"]["text"],
                     reference=b["entity"]["reference"],
                     score=b["distance"],
-                    metadata=b["entity"]["metadata"],
+                    metadata={
+                        "reference_id": b["entity"]["reference_id"], 
+                        "pubdate": b["entity"]["pubdate"], 
+                        "impact_factor": b["entity"]["impact_factor"]},
                 )
                 for a in search_results
                 for b in a
