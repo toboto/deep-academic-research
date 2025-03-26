@@ -205,3 +205,6 @@ database/
 
 # output files
 outputs/
+
+# gitignore examples
+gitignore_examples/

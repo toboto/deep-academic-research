@@ -1,0 +1,206 @@
+[
+  {
+    "id": 10001,
+    "uuid": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+    "rawArticleId": 20001,
+    "doi": "10.1234/fake.2025.0001",
+    "title": "Novel Approach to Machine Learning in Healthcare: A Systematic Review",
+    "ctitle": "医疗领域机器学习新方法：系统综述",
+    "summary": "This systematic review examines recent developments in machine learning applications within healthcare settings. We analyzed 150 studies published between 2020 and 2024, focusing on three key areas: diagnostic accuracy, treatment optimization, and patient outcome prediction. Our findings suggest that deep learning models, particularly those incorporating multimodal data, show promising results in improving diagnostic accuracy by an average of 15% compared to traditional methods. The review also highlights the importance of data quality and standardization in healthcare AI applications. We discuss potential challenges and future directions in this rapidly evolving field.",
+    "journalName": "Journal of Healthcare Informatics",
+    "journalIf": 8.500,
+    "impactFactor": 8.500,
+    "pubdate": "2025-03-15",
+    "type": "Article",
+    "pdfFile": "/rbase_2408/articles/pdf/20250315/fake_article_001.pdf",
+    "txtFile": "rbase_2408/articles/pdf_md/20250315/fake_article_001.md",
+    "authors": [
+      {
+        "id": 50001,
+        "cname": "张三",
+        "ename": "Zhang San",
+        "relation": 0
+      },
+      {
+        "id": 50002,
+        "cname": "李四",
+        "ename": "Li Si",
+        "relation": 1
+      },
+      {
+        "id": 50003,
+        "cname": "王五",
+        "ename": "Wang Wu",
+        "relation": 2
+      }
+    ],
+    "keywords": [
+      {
+        "id": 80001,
+        "name": "Machine Learning",
+        "concept": {
+          "id": 90001,
+          "cname": "机器学习",
+          "ename": "Machine Learning",
+          "abbr": "ML"
+        }
+      },
+      {
+        "id": 80002,
+        "name": "Healthcare",
+        "concept": {
+          "id": 90002,
+          "cname": "医疗保健",
+          "ename": "Healthcare",
+          "abbr": null
+        }
+      },
+      {
+        "id": 80003,
+        "name": "Artificial Intelligence",
+        "concept": {
+          "id": 90003,
+          "cname": "人工智能",
+          "ename": "Artificial Intelligence",
+          "abbr": "AI"
+        }
+      }
+    ]
+  },
+  {
+    "id": 10002,
+    "uuid": "b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7",
+    "rawArticleId": 20002,
+    "doi": "10.1234/fake.2025.0002",
+    "title": "Sustainable Energy Solutions: A Comprehensive Analysis of Renewable Technologies",
+    "ctitle": "可持续能源解决方案：可再生能源技术综合分析",
+    "summary": "This comprehensive analysis explores the current state and future potential of renewable energy technologies. We conducted a detailed review of solar, wind, and hydroelectric power systems, focusing on efficiency, cost-effectiveness, and environmental impact. Our research included case studies from 50 different regions worldwide, analyzing implementation challenges and success factors. The findings indicate that hybrid renewable energy systems show the most promise for future development, with potential efficiency improvements of up to 25% compared to single-technology solutions. We also discuss the role of energy storage technologies and smart grid integration in optimizing renewable energy utilization.",
+    "journalName": "Renewable Energy Review",
+    "journalIf": 7.200,
+    "impactFactor": 7.200,
+    "pubdate": "2025-03-10",
+    "type": "Article",
+    "pdfFile": "/rbase_2408/articles/pdf/20250310/fake_article_002.pdf",
+    "txtFile": "rbase_2408/articles/pdf_md/20250310/fake_article_002.md",
+    "authors": [
+      {
+        "id": 50004,
+        "cname": "赵六",
+        "ename": "Zhao Liu",
+        "relation": 0
+      },
+      {
+        "id": 50005,
+        "cname": "钱七",
+        "ename": "Qian Qi",
+        "relation": 1
+      },
+      {
+        "id": 50006,
+        "cname": "孙八",
+        "ename": "Sun Ba",
+        "relation": 2
+      }
+    ],
+    "keywords": [
+      {
+        "id": 80004,
+        "name": "Renewable Energy",
+        "concept": {
+          "id": 90004,
+          "cname": "可再生能源",
+          "ename": "Renewable Energy",
+          "abbr": "RE"
+        }
+      },
+      {
+        "id": 80005,
+        "name": "Solar Power",
+        "concept": {
+          "id": 90005,
+          "cname": "太阳能",
+          "ename": "Solar Power",
+          "abbr": null
+        }
+      },
+      {
+        "id": 80006,
+        "name": "Wind Energy",
+        "concept": {
+          "id": 90006,
+          "cname": "风能",
+          "ename": "Wind Energy",
+          "abbr": null
+        }
+      }
+    ]
+  },
+  {
+    "id": 10003,
+    "uuid": "c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8",
+    "rawArticleId": 20003,
+    "doi": "10.1234/fake.2025.0003",
+    "title": "Climate Change Impact on Marine Ecosystems: A Global Perspective",
+    "ctitle": "气候变化对海洋生态系统的影响：全球视角",
+    "summary": "This study presents a global analysis of climate change impacts on marine ecosystems. We examined data from 200 monitoring stations worldwide, focusing on temperature changes, ocean acidification, and biodiversity shifts. Our findings reveal significant changes in marine species distribution patterns, with a 30% shift in species ranges over the past decade. We also observed increased coral bleaching events and changes in primary productivity patterns. The research highlights the importance of integrated ocean management strategies and the need for enhanced monitoring systems. We discuss potential mitigation strategies and their effectiveness in different marine regions.",
+    "journalName": "Marine Ecology Progress",
+    "journalIf": 6.800,
+    "impactFactor": 6.800,
+    "pubdate": "2025-03-05",
+    "type": "Article",
+    "pdfFile": "/rbase_2408/articles/pdf/20250305/fake_article_003.pdf",
+    "txtFile": "rbase_2408/articles/pdf_md/20250305/fake_article_003.md",
+    "authors": [
+      {
+        "id": 50007,
+        "cname": "周九",
+        "ename": "Zhou Jiu",
+        "relation": 0
+      },
+      {
+        "id": 50008,
+        "cname": "吴十",
+        "ename": "Wu Shi",
+        "relation": 1
+      },
+      {
+        "id": 50009,
+        "cname": "郑十一",
+        "ename": "Zheng Shiyi",
+        "relation": 2
+      }
+    ],
+    "keywords": [
+      {
+        "id": 80007,
+        "name": "Climate Change",
+        "concept": {
+          "id": 90007,
+          "cname": "气候变化",
+          "ename": "Climate Change",
+          "abbr": null
+        }
+      },
+      {
+        "id": 80008,
+        "name": "Marine Ecosystems",
+        "concept": {
+          "id": 90008,
+          "cname": "海洋生态系统",
+          "ename": "Marine Ecosystems",
+          "abbr": null
+        }
+      },
+      {
+        "id": 80009,
+        "name": "Ocean Acidification",
+        "concept": {
+          "id": 90009,
+          "cname": "海洋酸化",
+          "ename": "Ocean Acidification",
+          "abbr": null
+        }
+      }
+    ]
+  }
+] 

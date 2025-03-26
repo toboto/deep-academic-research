@@ -55,7 +55,7 @@ class Milvus(BaseVectorDB):
             schema.add_field("reference", DataType.VARCHAR, max_length=reference_max_length)
             schema.add_field("reference_id", DataType.INT64)
             schema.add_field("keywords", DataType.ARRAY, element_type=DataType.VARCHAR, 
-                max_capacity=100, max_length=100)
+                max_capacity=500, max_length=200)
             schema.add_field("authors", DataType.ARRAY, element_type=DataType.VARCHAR,
                 max_capacity=100, max_length=100)
             schema.add_field("author_ids", DataType.ARRAY, element_type=DataType.INT64,

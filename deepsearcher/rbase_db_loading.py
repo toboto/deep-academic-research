@@ -88,7 +88,7 @@ def init_vector_db(collection_name: str, collection_description: str, force_new_
     )
 
 
-def _process_authors(cursor, article: RbaseArticle) -> Tuple[List[str], List[int], List[str], List[int]]:
+def _process_authors(cursor, article: RbaseArticle, bypass_rbase_db: bool = False) -> Tuple[List[str], List[int], List[str], List[int]]:
     """
     Process author information, get author IDs and set authors for RbaseArticle object
     
@@ -100,87 +100,92 @@ def _process_authors(cursor, article: RbaseArticle) -> Tuple[List[str], List[int
         Tuple of author lists and author ID lists
     """
     # Ensure parameters are not None
-    authors = article.authors or ""
-    corresponding_authors = article.corresponding_authors or ""
     
-    # Process regular authors
-    author_list = [author.strip() for author in authors.split(',') if author.strip()]
-    
-    # Process corresponding authors
-    corresponding_author_list = [author.strip() for author in corresponding_authors.split(',') if author.strip()]
-    
-    # Merge author lists and remove duplicates
-    all_authors_set = set(author_list + corresponding_author_list)
-    all_authors = list(all_authors_set)
-    
-    author_ids = []
-    corresponding_author_ids = []
-    
-    # Query each author's ID and create RbaseAuthor objects
-    for author_name in all_authors:
-        # Determine if it's an English name or Chinese name
-        is_english = all(ord(c) < 128 for c in author_name)
+    if not bypass_rbase_db:
+        authors = article.authors or ""
+        corresponding_authors = article.corresponding_authors or ""
         
-        # Create author object
-        if is_english:
-            author_obj = RbaseAuthor(name=author_name, ename=author_name)
-            # Query by English name
-            author_sql = """
-            SELECT id FROM author WHERE ename = %s ORDER BY modified DESC
-            """
-            cursor.execute(author_sql, (author_name,))
-        else:
-            author_obj = RbaseAuthor(name=author_name, cname=author_name)
-            # Query by Chinese name
-            author_sql = """
-            SELECT id FROM author WHERE cname = %s ORDER BY modified DESC
-            """
-            cursor.execute(author_sql, (author_name,))
+        author_ids = []
+        corresponding_author_ids = []
+        # Process regular authors
+        author_list = [author.strip() for author in authors.split(',') if author.strip()]
         
-        # Get all matching author IDs
-        author_results = cursor.fetchall()
-        if author_results:
-            # Extract all author IDs
-            ids = [result['id'] for result in author_results]
-            # Set author IDs
-            author_obj.set_author_ids(ids)
-            # Add to ID list
-            author_ids.extend(ids)
+        # Process corresponding authors
+        corresponding_author_list = [author.strip() for author in corresponding_authors.split(',') if author.strip()]
+        
+        # Merge author lists and remove duplicates
+        all_authors_set = set(author_list + corresponding_author_list)
+        all_authors = list(all_authors_set)
+    
+        # Query each author's ID and create RbaseAuthor objects
+        for author_name in all_authors:
+            # Determine if it's an English name or Chinese name
+            is_english = all(ord(c) < 128 for c in author_name)
             
-            # If it's a corresponding author, also add to corresponding author ID list
-            is_corresponding = author_name in corresponding_author_list
-            author_obj.is_corresponding = is_corresponding
-            if is_corresponding:
-                corresponding_author_ids.extend(ids)
-        
-        # Add to article
-        article.set_author(author_obj)
+            # Create author object
+            if is_english:
+                author_obj = RbaseAuthor(name=author_name, ename=author_name)
+                # Query by English name
+                author_sql = """
+                SELECT id FROM author WHERE ename = %s ORDER BY modified DESC
+                """
+                cursor.execute(author_sql, (author_name,))
+            else:
+                author_obj = RbaseAuthor(name=author_name, cname=author_name)
+                # Query by Chinese name
+                author_sql = """
+                SELECT id FROM author WHERE cname = %s ORDER BY modified DESC
+                """
+                cursor.execute(author_sql, (author_name,))
+            
+            # Get all matching author IDs
+            author_results = cursor.fetchall()
+            if author_results:
+                # Extract all author IDs
+                ids = [result['id'] for result in author_results]
+                # Set author IDs
+                author_obj.set_author_ids(ids)
+                # Add to ID list
+                author_ids.extend(ids)
+                
+                # If it's a corresponding author, also add to corresponding author ID list
+                is_corresponding = author_name in corresponding_author_list
+                author_obj.is_corresponding = is_corresponding
+                if is_corresponding:
+                    corresponding_author_ids.extend(ids)
+            
+            # Add to article
+            article.set_author(author_obj)
     
-    return all_authors, author_ids, corresponding_author_list, corresponding_author_ids
+        return all_authors, author_ids, corresponding_author_list, corresponding_author_ids
 
 
-def _process_keywords(source_keywords: str, mesh_keywords: str) -> List[str]:
+def _process_keywords(article: RbaseArticle, bypass_rbase_db: bool = False) -> List[str]:
     """
-    Process keyword information
+    Process article keywords information, either retrieving from database or using keywords directly from article object.
     
     Args:
-        source_keywords: Source keyword string, semicolon separated
-        mesh_keywords: MeSH keyword string, semicolon separated
+        article: RbaseArticle object containing article information
+        bypass_rbase_db: Whether to bypass Rbase database and use keywords directly from article object, defaults to False
         
     Returns:
-        Deduplicated merged keyword list
+        List[str]: Deduplicated list of keywords
     """
-    # Ensure parameters are not None
-    source_keywords = source_keywords or ""
-    mesh_keywords = mesh_keywords or ""
-    
-    # Split keywords by semicolon and remove whitespace
-    source_keywords_list = [kw.strip() for kw in source_keywords.split(';') if kw.strip()]
-    mesh_keywords_list = [kw.strip() for kw in mesh_keywords.split(';') if kw.strip()]
-    
-    # Merge keyword lists and remove duplicates
-    keywords_set = set(source_keywords_list + mesh_keywords_list)
-    keywords_list = list(keywords_set)
+
+    if not bypass_rbase_db:
+        # Ensure parameters are not None
+        source_keywords = source_keywords or ""
+        mesh_keywords = mesh_keywords or ""
+        
+        # Split keywords by semicolon and remove whitespace
+        source_keywords_list = [kw.strip() for kw in source_keywords.split(';') if kw.strip()]
+        mesh_keywords_list = [kw.strip() for kw in mesh_keywords.split(';') if kw.strip()]
+        
+        # Merge keyword lists and remove duplicates
+        keywords_set = set(source_keywords_list + mesh_keywords_list)
+        keywords_list = list(keywords_set)
+    else:
+        keywords_list = article.keywords
     
     return keywords_list
 
@@ -216,7 +221,8 @@ def insert_to_vector_db(rbase_config: dict,
                       force_new_collection: bool = False,
                       chunk_size: int = 1500,
                       chunk_overlap: int = 100,
-                      batch_size: int = 256):
+                      batch_size: int = 256,
+                      bypass_rbase_db: bool = False):
     """
     Load article data into vector database
     
@@ -269,13 +275,10 @@ def insert_to_vector_db(rbase_config: dict,
                     continue
                 
                 # Process author information
-                _process_authors(cursor, article)
+                _process_authors(cursor, article, bypass_rbase_db)
                 
                 # Process keywords
-                keywords_list = _process_keywords(
-                    article.source_keywords, 
-                    article.mesh_keywords
-                )
+                keywords_list = _process_keywords(article, bypass_rbase_db) 
                 
                 # Create temporary file to save markdown content
                 with tempfile.NamedTemporaryFile(suffix='.md', delete=False) as temp_file:
@@ -303,17 +306,23 @@ def insert_to_vector_db(rbase_config: dict,
                 # Add metadata to each document
                 for doc in docs:
                     # Get author information
-                    author_names = [author.name for author in article.author_objects]
-                    author_ids = []
-                    corresponding_author_names = []
-                    corresponding_author_ids = []
-                    
-                    for author in article.author_objects:
-                        if hasattr(author, 'author_ids'):
-                            author_ids.extend(author.author_ids)
-                            if author.is_corresponding:
-                                corresponding_author_names.append(author.name)
-                                corresponding_author_ids.extend(author.author_ids)
+                    if not bypass_rbase_db:
+                        author_names = [author.name for author in article.author_objects]
+                        author_ids = []
+                        corresponding_author_names = []
+                        corresponding_author_ids = []
+                        
+                        for author in article.author_objects:
+                            if hasattr(author, 'author_ids'):
+                                author_ids.extend(author.author_ids)
+                                if author.is_corresponding:
+                                    corresponding_author_names.append(author.name)
+                                    corresponding_author_ids.extend(author.author_ids)
+                    else:
+                        author_names = list(set(article.authors + article.corresponding_authors))
+                        author_ids = list(set(article.author_ids + article.corresponding_author_ids))
+                        corresponding_author_names = article.corresponding_authors
+                        corresponding_author_ids = article.corresponding_author_ids
                     
                     doc.metadata.update({
                         'title': article.title,
