@@ -198,7 +198,8 @@ def init_config(config: Configuration):
             translator=academic_translator,
             embedding_model=embedding_model,
             vector_db=vector_db,
-            text_window_splitter=config.rbase_settings.get("overview_rag", {}).get("text_window_splitter", True)
+            text_window_splitter=config.rbase_settings.get("overview_rag", {}).get("text_window_splitter", True),
+            rbase_settings=config.rbase_settings
         )
         
         log.info("OverviewRAG initialized successfully")

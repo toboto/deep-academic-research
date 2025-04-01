@@ -8,7 +8,7 @@ relevant information for each section of the review.
 """
 
 import asyncio
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 from deepsearcher.agent.base import RAGAgent, describe_class
 from deepsearcher.agent.academic_translator import AcademicTranslator
@@ -18,8 +18,10 @@ from deepsearcher.tools import log
 from deepsearcher.vector_db import RetrievalResult
 from deepsearcher.vector_db.base import BaseVectorDB, deduplicate_results
 from deepsearcher.agent.collection_router import CollectionRouter
+from deepsearcher.rbase_db_loading import get_mysql_connection
+from tqdm import tqdm
 
-# 结构划分提示词
+# Structure division prompt
 STRUCTURE_PROMPT = """
 You are an academic research assistant tasked with planning a comprehensive literature review on a specific topic.
 
@@ -29,7 +31,17 @@ Research Topic: <topic>
 
 For each section, please provide:
 1. A focused search query that will help retrieve the most relevant content from our academic database
-2. Specific search conditions or filters that would help refine the results (e.g., time period, specific subtopics, methodological focus, etc.)
+2. Analyze the research topic whether has some condition requirements (e.g., time period, specific keywords, impact factor requirements, etc.)
+    2.1 if the research topic requires a specific time period, please add 'pubdate' as a condition, which is an integer representing the timestamp(in seconds) of the public date
+    2.2 if the research topic requires a specific impact factor, please add 'impact_factor' as a condition, which is a float number greater or equals to 0
+    2.3 if the research topic requires one certain keyword or a group of specific keywords, and requires not to exclude any other paper without these keywords, please add 'keywords' as a condition, which is an array of strings
+    2.4 conditions are only generated if the topic is required explicitly, otherwise, the conditions should be generated,
+        examples:
+            if the research topic is "please write a review about the topic of 'planktonic microbial community'", the conditions should be empty 
+            if the research topic is "please write a review about the topic of 'planktonic microbial community' and the papers should be published after 2020", the conditions should be 'pubdate >= 1577836800'
+            if the research topic is "please write a review about the topic of 'planktonic microbial community' and the papers should be published after 2020 and the impact factor should be greater than 10", the conditions should be 'pubdate >= 1577836800 AND impact_factor >= 10'
+            if the research topic is "please write a review about the topic of 'planktonic microbial community' from papers including 'bacteria' or 'virus'", the conditions should be 'ARRAY_CONTAINS_ANY(keywords, ["bacteria", "virus"])'
+    2.5 an exception is that for emerging trends or future directions, the condition for pubdate in the latest 5 years should be added automatically
 
 Literature Review Structure:
 1. Introduction (Background & Problem Definition)
@@ -39,23 +51,35 @@ Literature Review Structure:
 5. Emerging Trends (Frontier Analysis)
 6. Research Gaps & Future Directions (Prediction of Unexplored Areas)
 
+
 Format your response as a Python dictionary with the following structure:
 {
     "Introduction": {
         "query": "search query for introduction",
-        "conditions": ["condition1", "condition2"]
+        "conditions": "condition_expression"
     },
     "Theoretical Foundations": {
         "query": "search query for theoretical foundations",
-        "conditions": ["condition1", "condition2"]
+        "conditions": "condition_expression"
     },
     ...
 }
 
+Condition Syntax:
+1. conditions are descripted as plain text which is similar to SQL syntax
+2. for integer condition, the format is like 'pubdate >= 1741996800' (which stands for pubdate is later than 2025-03-15)
+3. for float condition, the format is like 'impact_factor >= 10' (which stands for impact factor is greater or equals to 10)
+4. for a range requirement, the operator can be written in a signle condition, like '1741996800 <= pubdate <= 1742083200' (which stands for pubdate is between 2025-03-15 and 2025-03-16)
+5. for an array condition, the format is like 'ARRAY_CONTAINS(keywords, "keyword1")', if the multiple keywords are required, 
+   the format is like 'ARRAY_CONTAINS_ANY(keywords, ["keyword1", "keyword2"])' or
+   'ARRAY_CONTAINS_ALL(keywords, ["keyword1", "keyword2"]) according to the detail requirement.
+6. if several conditions are required, they should be connected by 'AND' or 'OR'
+
 Ensure your queries are specific, academic in nature, and designed to retrieve comprehensive information for each section.
+Output the JSON response directly without any comments or explanations.
 """
 
-# 章节内容生成提示词
+# Section content generation prompt
 SECTION_GENERATION_PROMPT = """
 You are an academic writer specializing in creating comprehensive literature reviews. Based on the retrieved academic content, write a detailed section for a literature review.
 
@@ -68,7 +92,7 @@ Retrieved Content:
 Guidelines:
 1. Write a cohesive, well-structured section that thoroughly covers the topic based on the retrieved content
 2. Use appropriate academic language and maintain a scholarly tone
-3. Properly cite sources within the text using the format [X], where X corresponds to the chunk number from the retrieved content
+3. Properly cite sources within the text using the format [X], where X corresponds to the chunk Reference ID from the retrieved content
 4. Synthesize information rather than merely summarizing individual sources
 5. Highlight consensus views as well as contrasting perspectives in the field
 6. Maintain appropriate length for a section in a comprehensive literature review (approximately 800-1200 words)
@@ -77,30 +101,35 @@ Guidelines:
 Your response should be a polished section ready for inclusion in the final literature review.
 """
 
-# 全文润色提示词
-POLISH_PROMPT = """
-You are a senior academic editor specializing in polishing scholarly literature reviews. Review the complete draft of this literature review and improve it for publication quality.
-
-Topic: {topic}
-
-Draft Literature Review:
-{full_text}
+# Complete the final paper prompt
+COMPILE_REVIEW_PROMPT = """
+You are a senior academic researcher and you have deeply researched about the topic from several aspects.
+Now you need to complete the final paper with your research drafts that are given in the following Draft Sections.
+Meanwhile you are specializing in polishing scholarly literature reviews. 
 
 Guidelines for Improvement:
 1. Ensure logical flow and coherence throughout the entire document
 2. Eliminate any redundancies or repetitive content
-3. Check for and correct any logical inconsistencies or structural problems
-4. Improve transitions between sections
-5. Enhance clarity and precision of language
-6. Maintain consistent academic tone and style throughout
-7. Ensure appropriate depth of analysis in each section
-8. Do not change the citations format [X]
-9. Keep the overall content and organization, making only improvements to quality rather than substantive changes
+3. Some conclusions in a section are not neccessay, as we will provide a conculusion in the end of the review
+4. Check for and correct any logical inconsistencies or structural problems
+5. Improve transitions between sections
+6. Enhance clarity and precision of language
+7. Maintain consistent academic tone and style throughout
+8. Ensure appropriate depth of analysis in each section
+9. Do not change the citations format [X] and X value, where X corresponds to the chunk Reference ID from the retrieved content
+10. Keep the overall content and organization, making only improvements to quality rather than substantive changes
+
+Review the complete draft of this literature review and improve it for publication quality.
+
+Reaserch Topic: {topic}
+
+Draft Sections for the Literature Review:
+{draft_text}
 
 Your response should be the complete, polished literature review ready for submission.
 """
 
-# 语言检测提示词
+# Language detection prompt
 LANGUAGE_DETECT_PROMPT = """
 Determine the primary language of the following text. Return only the language code:
 - "en" for English
@@ -112,7 +141,7 @@ Text: {text}
 Language code:
 """
 
-# 搜索结果重排提示词
+# Search result reranking prompt
 RERANK_PROMPT = """
 Based on the query and the retrieved chunk, determine whether the chunk is helpful in addressing the query. Respond with only "YES" or "NO".
 
@@ -120,6 +149,53 @@ Query: {query}
 Retrieved Chunk: {retrieved_chunk}
 
 Is the chunk helpful for addressing the query?
+"""
+
+# Text cleaning prompt
+CLEAN_TEXT_PROMPT = """
+Clean and optimize the following academic text by following these specific rules:
+
+1. Remove (do not complete) incomplete sentences at the beginning or end of the text
+2. Remove references or citations in the format of: author(s) + title + journal + year + DOI/URL
+3. Remove any meaningless text, formatting artifacts, or irrelevant metadata
+4. Maintain the academic integrity and completeness of the meaningful content
+5. Keep complete paragraphs and well-formed sentences
+6. Do not add any new content or complete partial ideas
+
+Return only the cleaned text without any explanations or markup.
+
+Text: {text}
+"""
+
+# Abstract and conclusion generation prompt
+ABSTRACT_CONCLUSION_PROMPT = """
+You are an expert academic researcher who specializes in writing research papers and literature reviews.
+Based on the provided literature review content, please generate two distinct sections:
+
+1. Abstract:
+- Write a concise summary (200-300 words) of the entire review
+- Include the main research topic, key findings, and significant conclusions
+- Follow standard academic abstract format
+- Focus on the most important aspects of the review
+
+2. Conclusion:
+- Write a comprehensive conclusion (300-400 words) that synthesizes the main points
+- Highlight the key contributions and implications of the research
+- Discuss potential future research directions
+- Maintain academic tone and style
+
+Research Topic: {topic}
+
+Literature Review Content:
+{review_content}
+
+Please format your response as follows:
+
+ABSTRACT:
+[Your abstract text here]
+
+CONCLUSION:
+[Your conclusion text here]
 """
 
 @describe_class(
@@ -143,7 +219,7 @@ class OverviewRAG(RAGAgent):
         embedding_model: BaseEmbedding,
         vector_db: BaseVectorDB,
         route_collection: bool = True,
-        text_window_splitter: bool = True,
+        rbase_settings: dict = {},
         **kwargs,
     ):
         """
@@ -156,7 +232,6 @@ class OverviewRAG(RAGAgent):
             translator: Academic translator for language translation
             embedding_model: Embedding model for vector encoding
             vector_db: Vector database for knowledge retrieval
-            text_window_splitter: Whether to use text window splitting
         """
         self.llm = llm
         self.reasoning_llm = reasoning_llm
@@ -164,8 +239,8 @@ class OverviewRAG(RAGAgent):
         self.translator = translator
         self.embedding_model = embedding_model
         self.vector_db = vector_db
-        self.text_window_splitter = text_window_splitter
         self.route_collection = route_collection
+        self.rbase_settings = rbase_settings
         if route_collection:
             self.collection_router = CollectionRouter(llm=self.llm, vector_db=self.vector_db)
         else:
@@ -174,7 +249,12 @@ class OverviewRAG(RAGAgent):
         if kwargs.get("top_k_per_section"):
             self.top_k_per_section = kwargs.get("top_k_per_section")
         else:
-            self.top_k_per_section = 10
+            self.top_k_per_section = 20
+
+        if kwargs.get("top_k_accepted_results"):
+            self.top_k_accepted_results = kwargs.get("top_k_accepted_results")
+        else:
+            self.top_k_accepted_results = 20
         
         # Define the standard structure for academic reviews
         self.sections = [
@@ -185,7 +265,12 @@ class OverviewRAG(RAGAgent):
             "Emerging Trends",
             "Research Gaps & Future Directions"
         ]
-    
+        # Final English and Chinese reviews
+        self.english_response = ""
+        self.chinese_response = ""
+        # Whether to print detailed logs
+        self.verbose = False
+
     def _detect_language(self, text: str) -> str:
         """
         Detect the language of the input text.
@@ -206,6 +291,23 @@ class OverviewRAG(RAGAgent):
             return "mixed"
         
         return language
+    
+    def _clean_chunk_text(self, text: str) -> Tuple[str, int]:
+        """
+        Clean and optimize a text chunk by removing incomplete sentences and meaningless text.
+        
+        Args:
+            text: The text to clean
+            
+        Returns:
+            Tuple of (cleaned text, tokens used)
+        """
+        prompt = CLEAN_TEXT_PROMPT.format(text=text)
+        
+        response = self.llm.chat([{"role": "user", "content": prompt}])
+        cleaned_text = response.content.strip()
+        
+        return cleaned_text, response.total_tokens
     
     def _translate_to_english(self, text: str) -> str:
         """
@@ -246,22 +348,22 @@ class OverviewRAG(RAGAgent):
         
         # Parse the response to get the dictionary
         try:
-            # 尝试多种方式解析LLM返回的字典格式
+            # Try multiple methods to parse the dictionary format returned by LLM
             import ast
             import re
             import json
             
-            # 去除可能存在的多余内容
+            # Remove any extra content that might exist
             content = response.content.strip()
             
-            # 方法1：尝试直接用ast.literal_eval解析
+            # Method 1: Try direct parsing with ast.literal_eval
             try:
                 queries_dict = ast.literal_eval(content)
                 return queries_dict
             except (SyntaxError, ValueError):
                 pass
             
-            # 方法2：用正则表达式提取字典部分
+            # Method 2: Use regex to extract the dictionary part
             try:
                 dict_pattern = r'\{[\s\S]*\}'
                 dict_match = re.search(dict_pattern, content)
@@ -272,26 +374,26 @@ class OverviewRAG(RAGAgent):
             except (SyntaxError, ValueError):
                 pass
             
-            # 方法3：尝试json解析
+            # Method 3: Try json parsing
             try:
-                # 去除可能的markdown代码块标记
+                # Remove possible markdown code block markers
                 json_content = re.sub(r'```(?:json|python)?|```', '', content).strip()
                 queries_dict = json.loads(json_content)
                 return queries_dict
             except json.JSONDecodeError:
                 pass
             
-            # 所有解析方法都失败，使用默认值
-            log.warning("无法解析LLM返回的字典格式，使用默认查询")
+            # All parsing methods failed, use default values
+            log.warning("Could not parse LLM dictionary format, using default queries")
             return {section: {"query": f"{topic} {section.lower()}", "conditions": []} 
                     for section in self.sections}
         except Exception as e:
-            log.error(f"生成查询失败: {e}")
-            # 使用基本结构作为后备方案
+            log.error(f"Failed to generate queries: {e}")
+            # Use basic structure as fallback
             return {section: {"query": f"{topic} {section.lower()}", "conditions": []} 
                     for section in self.sections}
     
-    async def _search_for_section(self, section: str, query: str, conditions: List[str] = None) -> Tuple[List[RetrievalResult], int]:
+    async def _search_for_section(self, section: str, query: str, filter: Optional[str] = '') -> Tuple[List[RetrievalResult], int]:
         """
         Search for content relevant to a specific section.
         
@@ -305,24 +407,17 @@ class OverviewRAG(RAGAgent):
         """
         log.color_print(f"<search> Searching for section '{section}' with query: '{query}' </search>\n")
         
-        # Incorporate conditions into the query if provided
-        if conditions and len(conditions) > 0:
-            # enhanced_query = f"{query} " + " ".join(conditions)
-            enhanced_query = query
-        else:
-            enhanced_query = query
-            
-        query_vector = self.embedding_model.embed_query(enhanced_query)
+        query_vector = self.embedding_model.embed_query(query)
         consumed_tokens = 0
         
-        # 决定要搜索的集合
+        # Determine which collections to search
         if self.route_collection:
-            # 使用CollectionRouter选择合适的集合
-            selected_collections, n_token_route = self.collection_router.invoke(query=enhanced_query)
+            # Use CollectionRouter to select appropriate collections
+            selected_collections, n_token_route = self.collection_router.invoke(query=query)
             consumed_tokens += n_token_route
             log.color_print(f"<search> Collection router selected: {selected_collections} </search>\n")
         else:
-            # 使用默认集合
+            # Use default collection
             selected_collections = ["default"]
             log.color_print(f"<search> Using default collection </search>\n")
         
@@ -331,19 +426,22 @@ class OverviewRAG(RAGAgent):
         for collection in selected_collections:
             log.color_print(f"<search> Searching in [{collection}]... </search>\n")
             
-            # 从向量数据库检索结果
+            # Retrieve results from vector database
             retrieved_results = self.vector_db.search_data(
-                collection=collection, vector=query_vector, top_k=self.top_k_per_section
+                collection=collection, vector=query_vector, top_k=self.top_k_per_section, filter=filter
             )
+
+            if self.verbose:
+                log.debug(f"{len(retrieved_results)} chunks retrived in '{collection}' for query: '{query}'")
             
             if not retrieved_results or len(retrieved_results) == 0:
                 log.color_print(f"<search> No relevant document chunks found in '{collection}'! </search>\n")
                 continue
                 
-            # 基于查询的相关性对结果进行重排序
-            for retrieved_result in retrieved_results:
+            # Rerank results based on query relevance
+            for retrieved_result in tqdm(retrieved_results, desc="Reranking results"):
                 rerank_prompt = RERANK_PROMPT.format(
-                    query=enhanced_query,
+                    query=query,
                     retrieved_chunk=f"<chunk>{retrieved_result.text}</chunk>"
                 )
                 
@@ -354,13 +452,32 @@ class OverviewRAG(RAGAgent):
                 response_content = chat_response.content.strip()
                 
                 if "YES" in response_content and "NO" not in response_content:
+                    # Clean text, remove incomplete or meaningless content
+                    cleaned_text, clean_tokens = self._clean_chunk_text(retrieved_result.text)
+                    consumed_tokens += clean_tokens
+                    
+                    # Update the retrieved result text
+                    retrieved_result.text = cleaned_text
                     accepted_results.append(retrieved_result)
             
+            if self.verbose:
+                log.debug(f"{len(accepted_results)} chunks accepted from '{collection}' for query: '{query}'")
+
             if len(accepted_results) > 0:
                 log.color_print(f"<search> Accepted {len(accepted_results)} document chunks from '{collection}' </search>\n")
-        
-        # 去重结果
+
+        # Deduplicate results
         accepted_results = deduplicate_results(accepted_results)
+        
+        # If results exceed limit, sort by score and truncate
+        if len(accepted_results) > self.top_k_accepted_results:
+            # Sort by score (higher scores first)
+            accepted_results.sort(key=lambda x: x.score, reverse=True)
+            # Take top_k_accepted_results items
+            accepted_results = accepted_results[:self.top_k_accepted_results]
+            if self.verbose:
+                log.debug(f"truncated to {self.top_k_accepted_results} top scoring results")
+        
         return accepted_results, consumed_tokens
     
     def _generate_section_content(self, section: str, topic: str, retrieved_results: List[RetrievalResult]) -> Tuple[str, int]:
@@ -382,10 +499,7 @@ class OverviewRAG(RAGAgent):
         # Format retrieved content for the prompt
         chunk_texts = []
         for i, result in enumerate(retrieved_results):
-            if self.text_window_splitter and "wider_text" in result.metadata:
-                chunk_texts.append(f"[{i+1}] Source: {result.reference}\n{result.metadata['wider_text']}")
-            else:
-                chunk_texts.append(f"[{i+1}] Source: {result.reference}\n{result.text}")
+            chunk_texts.append(f"[{result.metadata['reference_id']}] \n{result.text}")
         
         retrieved_content = "\n\n".join(chunk_texts)
         
@@ -396,28 +510,137 @@ class OverviewRAG(RAGAgent):
             retrieved_content=retrieved_content
         )
         
-        log.color_print(f"<think> Generating content for section '{section}'... </think>\n")
+        log.color_print(f"<writting> Generating content for section '{section}'... </writting>\n")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
         
         return response.content, response.total_tokens
     
-    def _polish_full_text(self, topic: str, full_text: str) -> Tuple[str, int]:
+    def _compile_final_review(self, topic: str, draft_text: str) -> Tuple[str, int]:
         """
-        Polish the full text of the review.
+        Compile and refine the final review from individual section drafts.
+        
+        This function takes the draft sections of the review and compiles them into
+        a cohesive, well-structured final document. It improves the logical flow,
+        eliminates redundancies, enhances transitions between sections, and ensures
+        a consistent academic tone throughout the entire review.
         
         Args:
             topic: Research topic
-            full_text: Full text of the review
+            draft_text: Combined text of all section drafts
             
         Returns:
-            Tuple of (polished text, tokens used)
+            Tuple of (compiled final review, tokens used)
         """
-        prompt = POLISH_PROMPT.format(topic=topic, full_text=full_text)
+        prompt = COMPILE_REVIEW_PROMPT.format(topic=topic, draft_text=draft_text)
         
-        log.color_print("<think> Polishing the full text... </think>\n")
+        log.color_print("<writting> Compiling and refining the final review... </writting>\n")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
         
         return response.content, response.total_tokens
+    
+    def _generate_abstract_and_conclusion(self, topic: str, review_content: str) -> Tuple[str, str, int]:
+        """
+        Generate abstract and conclusion sections for the literature review.
+        
+        Args:
+            topic: Research topic
+            review_content: The complete literature review content
+            
+        Returns:
+            Tuple of (abstract text, conclusion text, tokens used)
+        """
+        prompt = ABSTRACT_CONCLUSION_PROMPT.format(
+            topic=topic,
+            review_content=review_content
+        )
+        
+        log.color_print("<writting> Generating abstract and conclusion... </writting>\n")
+        response = self.reasoning_llm.chat([{"role": "user", "content": prompt}])
+        
+        # Parse the response to extract abstract and conclusion
+        content = response.content.strip()
+        import re
+        abstract_match = re.search(r"ABSTRACT:\s*(.*?)(?=CONCLUSION:|$)", content, re.DOTALL)
+        conclusion_match = re.search(r"CONCLUSION:\s*(.*?)$", content, re.DOTALL)
+        
+        abstract = abstract_match.group(1).strip() if abstract_match else ""
+        conclusion = conclusion_match.group(1).strip() if conclusion_match else ""
+        
+        return abstract, conclusion, response.total_tokens
+    
+    def _reorganize_references(self, text: str) -> Tuple[str, str, int]:
+        """
+        Reorganize citations and generate a reference list.
+        
+        Extract citation IDs from the text, replace them with sequential numbers [1][2][3]...,
+        and generate a corresponding reference list.
+        
+        Args:
+            text: Text containing citations
+            
+        Returns:
+            Tuple of (reorganized text, reference list, tokens used)
+        """
+        log.color_print("<optimizing> Reorganizing references... </optimizing>\n")
+        import re
+        
+        # Extract all citation IDs
+        reference_pattern = r'\[(\d+)\]'
+        reference_ids = re.findall(reference_pattern, text)
+        
+        if not reference_ids:
+            return text, "", 0
+            
+        # Deduplicate while maintaining order
+        unique_ids = []
+        seen = set()
+        for ref_id in reference_ids:
+            if ref_id not in seen:
+                unique_ids.append(ref_id)
+                seen.add(ref_id)
+        
+        conn = get_mysql_connection(self.rbase_settings.get("database", {}))
+        # Get reference information from database
+        references = []
+        try:
+            with conn.cursor() as cursor:
+                for ref_id in unique_ids:
+                    # Query article information from database
+                    query = f"SELECT title, journal_name, authors, doi, pubdate FROM article WHERE id = {ref_id}"
+                    cursor.execute(query)
+                    article = cursor.fetchone()
+                
+                    if not article:
+                        references.append(f"some authors, some title, some journal, some year, some doi for some article {ref_id}")
+                        continue
+                
+                    # Process author list
+                    authors = article['authors'].split(',')
+                    if len(authors) > 5:
+                        authors = authors[:5] + ['et al']
+                    authors_str = ', '.join(authors)
+                
+                    # Process publication year
+                    year = article['pubdate'].year
+                
+                    # Generate citation description
+                    reference = f"[{len(references) + 1}] {authors_str}. {article['title']}. {article['journal_name']}. {year};{article['doi']}"
+                    references.append(reference)
+        except Exception as e:
+            log.error(f"Failed to get reference information from database: {e}")
+            return text, "", 0
+        
+        # Replace citations in text
+        new_text = text
+        for i, ref_id in enumerate(unique_ids):
+            new_text = new_text.replace(f'[{ref_id}]', f'[{i + 1}]')
+        
+        # Generate references list
+        references_text = "\n\n".join(references)
+        
+        if self.verbose:
+            log.debug(f"References list: {references_text}")
+        return new_text, references_text, 0
     
     async def generate_overview(self, topic: str, **kwargs) -> Tuple[Dict[str, str], Dict[str, str], int]:
         """
@@ -427,12 +650,12 @@ class OverviewRAG(RAGAgent):
             topic: Research topic
             
         Returns:
-            Tuple of (English sections, Chinese sections, total tokens used)
+            Tuple of (compiled English sections, Chinese translated sections, total tokens used)
         """
         # Detect language and translate if needed
         topic_language = self._detect_language(topic)
         if topic_language in ["zh", "mixed"]:
-            log.color_print(f"<think> Translating topic from {topic_language} to English... </think>\n")
+            log.color_print(f"<translating> Translating topic from {topic_language} to English... </translating>\n")
             english_topic = self._translate_to_english(topic)
         else:
             english_topic = topic
@@ -475,26 +698,44 @@ class OverviewRAG(RAGAgent):
         for section in self.sections:
             full_text += f"## {section}\n\n{english_sections[section]}\n\n"
             
-        # Polish the full text
-        polished_text, polish_tokens = self._polish_full_text(english_topic, full_text)
-        total_tokens += polish_tokens
+        # Compile and refine the final review
+        compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
+        total_tokens += compile_tokens
         
-        # Parse sections from polished text
+        # Generate abstract and conclusion
+        abstract, conclusion, abstract_tokens = self._generate_abstract_and_conclusion(
+            english_topic, compiled_text
+        )
+        total_tokens += abstract_tokens
+        
+        # Reorganize references and generate reference list
+        reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
+        total_tokens += ref_tokens
+        
+        # Parse sections from reorganized text
         import re
-        polished_sections = {}
+        compiled_sections = {}
         section_pattern = r"## (.*?)\n\n(.*?)(?=\n\n## |$)"
-        for match in re.finditer(section_pattern, polished_text, re.DOTALL):
+        for match in re.finditer(section_pattern, reorganized_text, re.DOTALL):
             section_name = match.group(1).strip()
             section_content = match.group(2).strip()
-            polished_sections[section_name] = section_content
+            compiled_sections[section_name] = section_content
+            
+        # Add abstract, conclusion and references to the sections
+        compiled_sections["Abstract"] = abstract
+        compiled_sections["Conclusion"] = conclusion
+        compiled_sections["References"] = references_text
             
         # Translate each section to Chinese
         chinese_sections = {}
-        for section, content in polished_sections.items():
-            log.color_print(f"<think> Translating section '{section}' to Chinese... </think>\n")
-            chinese_sections[section] = self._translate_to_chinese(content)
+        for section, content in compiled_sections.items():
+            if section != "References":  # Don't translate references
+                log.color_print(f"<translating> Translating section '{section}' to Chinese... </translating>\n")
+                chinese_sections[section] = self._translate_to_chinese(content)
+            else:
+                chinese_sections[section] = content
             
-        return polished_sections, chinese_sections, total_tokens
+        return compiled_sections, chinese_sections, total_tokens
         
     def query(self, query: str, **kwargs) -> Tuple[str, List[RetrievalResult], int]:
         """
@@ -506,21 +747,33 @@ class OverviewRAG(RAGAgent):
         Returns:
             Tuple of (response text, retrieval results (empty list), tokens used)
         """
+        if kwargs.get("verbose"):
+            self.verbose = True
+        if kwargs.get("top_k_per_section"):
+            self.top_k_per_section = kwargs.get("top_k_per_section")
+        if kwargs.get("top_k_accepted_results"):
+            self.top_k_accepted_results = kwargs.get("top_k_accepted_results")
         # This method overrides the RAGAgent query method
         english_sections, chinese_sections, total_tokens = asyncio.run(
             self.generate_overview(query, **kwargs)
         )
         
         # Format the response with both English and Chinese content
-        response = f"# 综述：{query}\n\n"
+        self.english_response = f"# Overview: {query}\n\n"
+        self.chinese_response = f"# 综述：{query}\n\n"
         
-        for section in self.sections:
+        overview_sections = ['Abstract']
+        overview_sections.extend(self.sections)
+        overview_sections.append('Conclusion')
+        overview_sections.append('References')
+        for section in overview_sections:
             if section in english_sections and section in chinese_sections:
-                response += f"## {section}\n\n"
-                response += f"### English\n{english_sections[section]}\n\n"
-                response += f"### 中文\n{chinese_sections[section]}\n\n"
+                self.english_response += f"## {section}\n\n"
+                self.english_response += f"{english_sections[section]}\n\n"
+                self.chinese_response += self.translator.translate(f"## {section}", "zh") + "\n\n"
+                self.chinese_response += f"{chinese_sections[section]}\n\n"
                 
-        return response, [], total_tokens
+        return self.english_response, [], total_tokens
         
     def retrieve(self, query: str, **kwargs) -> Tuple[List[RetrievalResult], int, dict]:
         """

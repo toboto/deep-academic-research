@@ -91,3 +91,6 @@ def critical(message):
 
 def color_print(message, **kwargs):
     progress_logger.info(message)
+
+def color_print_debug(message, **kwargs):
+    progress_logger.debug(message)

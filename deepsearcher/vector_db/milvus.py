@@ -168,6 +168,7 @@ class Milvus(BaseVectorDB):
         collection: Optional[str],
         vector: Union[np.array, List[float]],
         top_k: int = 5,
+        filter: Optional[str] = "",
         *args,
         **kwargs,
     ) -> List[RetrievalResult]:
@@ -178,6 +179,7 @@ class Milvus(BaseVectorDB):
                 collection_name=collection,
                 data=[vector],
                 limit=top_k,
+                filter=filter,
                 output_fields=["embedding", "text", "reference", "reference_id", "pubdate", "impact_factor"],
                 timeout=10,
             )

@@ -78,19 +78,20 @@ class OpenAI(BaseLLM):
                 reasoning_chunk = delta.reasoning_content
                 reasoning_content += reasoning_chunk
                 if self.verbose:
-                    log.debug(f"[推理] {reasoning_chunk}")
+                    print(".", end="")
             # 处理回答内容
             elif hasattr(delta, 'content') and delta.content is not None:
                 # 标记开始回答
                 if delta.content != "" and not is_answering:
                     is_answering = True
                     if self.verbose:
-                        log.debug("\n--- 开始回答 ---\n")
+                        print("\n")
+                        log.debug("--- 开始回答 ---")
                 
                 content_chunk = delta.content
                 collected_content += content_chunk
                 if self.verbose:
-                    log.debug(f"[回答] {content_chunk}")
+                    print(".", end="")
             
             # 如果有token信息，累加
             if hasattr(chunk, 'usage') and chunk.usage:
@@ -100,10 +101,16 @@ class OpenAI(BaseLLM):
         if total_tokens == 0:
             total_tokens = (len(collected_content) + len(reasoning_content)) // 2
         
-        # 如果有推理内容，可以将其添加到最终响应中（可选）
+        # 最终的回答内容
         final_content = collected_content
+
+        # 如果存在推理内容，并且启用了详细日志，则打印推理内容
         if reasoning_content and self.verbose:
-            log.debug(f"\n--- 完整推理过程 ---\n{reasoning_content}")
+            print("\n")
+            log.debug(f"--- 完整推理过程 ---\n{reasoning_content}")
+        if self.verbose:
+            print("\n")
+            log.debug(f"--- 完整回答 ---\n{final_content}")
             
         return ChatResponse(
             content=final_content,
