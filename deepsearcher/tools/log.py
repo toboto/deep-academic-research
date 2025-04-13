@@ -33,7 +33,7 @@ class ColoredFormatter(logging.Formatter):
 
 # config log
 dev_logger = logging.getLogger("dev")
-dev_formatter = ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s")
+dev_formatter = ColoredFormatter("%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s")
 dev_handler = logging.StreamHandler()
 dev_handler.setFormatter(dev_formatter)
 dev_logger.addHandler(dev_handler)
@@ -80,7 +80,7 @@ def warning(message):
 def error(message):
     """error log"""
     if dev_mode:
-        dev_logger.error(message)
+        dev_logger.error(message, exc_info=True)
 
 
 def critical(message):

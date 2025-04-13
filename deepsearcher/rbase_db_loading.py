@@ -3,6 +3,7 @@ from typing import List, Tuple
 import tempfile
 import pymysql
 from tqdm import tqdm
+import re
 
 from deepsearcher import configuration
 from deepsearcher.loader.splitter import split_docs_to_chunks
@@ -222,7 +223,8 @@ def insert_to_vector_db(rbase_config: dict,
                       chunk_size: int = 1500,
                       chunk_overlap: int = 100,
                       batch_size: int = 256,
-                      bypass_rbase_db: bool = False):
+                      bypass_rbase_db: bool = False,
+                      save_downloaded_file: bool = False):
     """
     Load article data into vector database
     
@@ -295,7 +297,22 @@ def insert_to_vector_db(rbase_config: dict,
                     
                     try:
                         content = _download_file_content(full_url)
+                        
+                        # Remove content after "# REFERENCES" (case-insensitive)
+                        references_pattern = re.compile(r'#\s*references.*$', re.IGNORECASE | re.DOTALL)
+                        content = re.sub(references_pattern, '', content)
+                        
                         temp_file.write(content.encode('utf-8'))
+                        
+                        # 在database/markdown/目录下存储备份文件
+                        if save_downloaded_file:
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            backup_dir = os.path.join(current_dir, '..', 'database', 'markdown')
+                            os.makedirs(backup_dir, exist_ok=True)
+                            backup_filename = os.path.basename(txt_file_path)
+                            backup_path = os.path.join(backup_dir, backup_filename)
+                            with open(backup_path, 'w', encoding='utf-8') as backup_file:
+                                backup_file.write(content)
                     except Exception as e:
                         error(f"Failed to download file: {e}, URL: {full_url}")
                         continue
@@ -382,16 +399,24 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
         with conn.cursor() as cursor:
             # Query data from article_pdf_file table that meets the conditions, and ensure raw_article_id exists in article table
             # Also ensure txt_file is not empty and ends with .md
+            # sql = """
+            # SELECT apf.id, apf.raw_article_id, apf.txt_file, 
+            #        a.title, a.authors, a.corresponding_authors,
+            #        a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate
+            # FROM article_pdf_file apf
+            # INNER JOIN article a ON apf.raw_article_id = a.id
+            # WHERE apf.user_id = 0 AND apf.status = 1 
+            # AND apf.txt_file IS NOT NULL 
+            # AND apf.txt_file LIKE '%%.md'
+            # ORDER BY apf.modified DESC LIMIT %s OFFSET %s
+            # """
             sql = """
-            SELECT apf.id, apf.raw_article_id, apf.txt_file, 
+            SELECT a.id, a.raw_article_id, a.txt_file, 
                    a.title, a.authors, a.corresponding_authors,
                    a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate
-            FROM article_pdf_file apf
-            INNER JOIN article a ON apf.raw_article_id = a.id
-            WHERE apf.user_id = 0 AND apf.status = 1 
-            AND apf.txt_file IS NOT NULL 
-            AND apf.txt_file LIKE '%%.md'
-            ORDER BY apf.modified DESC LIMIT %s OFFSET %s
+            FROM article a
+            WHERE a.txt_file IS NOT NULL AND a.txt_file LIKE '%%.md'
+            ORDER BY a.modified DESC LIMIT %s OFFSET %s
             """
             # Use parameterized query to avoid string formatting issues
             cursor.execute(sql, (limit, offset))

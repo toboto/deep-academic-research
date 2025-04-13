@@ -49,7 +49,9 @@ def main(query: str, output_file: str, verbose: bool = False):
     # 调用OverviewRAG生成综述
     from deepsearcher.configuration import overview_rag
     response, _, tokens_used = overview_rag.query(query, 
-        verbose=verbose, top_k_per_section=500, top_k_accepted_results=80)
+        verbose=verbose, top_k_per_section=80, top_k_accepted_results=80, 
+        route_collection=False,
+        vector_db_collection="academic_articles")
     
     # 计算处理时间
     end_time = time.time()
