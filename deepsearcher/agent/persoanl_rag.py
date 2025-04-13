@@ -851,31 +851,31 @@ Summary: {article['summary']}
             
         try:
             # Generate overview
-        english_sections, chinese_sections, total_tokens = asyncio.run(
-            self.generate_overview(query, **kwargs)
-        )
+            english_sections, chinese_sections, total_tokens = asyncio.run(
+                self.generate_overview(query, **kwargs)
+            )
         
-        # Format the response with both English and Chinese content
+            # Format the response with both English and Chinese content
             self.english_response = f"# Research Overview: {query}\n\n"
             self.chinese_response = f"# 研究综述：{query}\n\n"
         
             # Add sections in order
-        overview_sections = ['Abstract']
-        overview_sections.extend(self.sections)
-        overview_sections.append('Conclusion')
-        overview_sections.append('References')
-            
-        for section in overview_sections:
-                if section in english_sections:
-                self.english_response += f"## {section}\n\n"
-                self.english_response += f"{english_sections[section]}\n\n"
-                    
-                    # Add translated section to Chinese response
-                    if section in chinese_sections:
-                self.chinese_response += self.translator.translate(f"## {section}", "zh") + "\n\n"
-                self.chinese_response += f"{chinese_sections[section]}\n\n"
+            overview_sections = ['Abstract']
+            overview_sections.extend(self.sections)
+            overview_sections.append('Conclusion')
+            overview_sections.append('References')
                 
-        return self.english_response, [], total_tokens
+            for section in overview_sections:
+                if section in english_sections:
+                    self.english_response += f"## {section}\n\n"
+                    self.english_response += f"{english_sections[section]}\n\n"
+                        
+                # Add translated section to Chinese response
+                if section in chinese_sections:
+                    self.chinese_response += self.translator.translate(f"## {section}", "zh") + "\n\n"
+                    self.chinese_response += f"{chinese_sections[section]}\n\n"
+                    
+            return self.english_response, [], total_tokens
             
         except Exception as e:
             error_message = f"Error generating research overview: {str(e)}"

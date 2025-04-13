@@ -9,6 +9,7 @@ from deepsearcher import configuration
 from deepsearcher.loader.splitter import split_docs_to_chunks
 from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
 from deepsearcher.tools.log import error, warning
+from deepsearcher.db.mysql_connection import get_mysql_connection, close_mysql_connection
 
 # Global variable to store active database connection
 _active_connection = None
@@ -175,8 +176,8 @@ def _process_keywords(article: RbaseArticle, bypass_rbase_db: bool = False) -> L
 
     if not bypass_rbase_db:
         # Ensure parameters are not None
-        source_keywords = source_keywords or ""
-        mesh_keywords = mesh_keywords or ""
+        source_keywords = article.source_keywords or ""
+        mesh_keywords = article.mesh_keywords or ""
         
         # Split keywords by semicolon and remove whitespace
         source_keywords_list = [kw.strip() for kw in source_keywords.split(';') if kw.strip()]
@@ -341,6 +342,11 @@ def insert_to_vector_db(rbase_config: dict,
                         corresponding_author_names = article.corresponding_authors
                         corresponding_author_ids = article.corresponding_author_ids
                     
+                    author_names = author_names[:200] if len(author_names) > 200 else author_names
+                    corresponding_author_names = corresponding_author_names[:200] if len(corresponding_author_names) > 200 else corresponding_author_names
+                    author_ids = author_ids[:200] if len(author_ids) > 200 else author_ids
+                    corresponding_author_ids = corresponding_author_ids[:200] if len(corresponding_author_ids) > 200 else corresponding_author_ids
+
                     doc.metadata.update({
                         'title': article.title,
                         'authors': author_names,

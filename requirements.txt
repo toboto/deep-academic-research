@@ -10,3 +10,10 @@ termcolor
 fastapi
 uvicorn
 pydantic-settings
+jieba>=0.42.1
+pymysql>=1.1.0
+PyYAML>=6.0.1
+requests>=2.31.0
+urllib3>=2.0.7
+langchain-core>=0.1.0
+oracledb>=1.4.2

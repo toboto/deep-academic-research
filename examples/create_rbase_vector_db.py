@@ -35,12 +35,12 @@ def main():
 
     # 步骤2：从Rbase数据库加载文章数据到向量数据库
     # 设置向量数据库集合名称和描述
-    collection_name = "rbase_articles"
-    collection_description = "Biomedical Research Literature Dataset"
+    collection_name = "test_rag_articles"
+    collection_description = "Academic Research Literature Dataset"
 
     # 从Rbase数据库加载文章数据
     # offset和limit参数用于分页加载数据
-    articles = load_from_rbase_db(config.rbase_settings, offset=0, limit=10)
+    articles = load_from_rbase_db(config.rbase_settings, offset=0, limit=2000)
     
     # 步骤3：将文章数据插入到向量数据库
     insert_result = insert_to_vector_db(

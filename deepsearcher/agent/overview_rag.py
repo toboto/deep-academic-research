@@ -18,7 +18,7 @@ from deepsearcher.tools import log
 from deepsearcher.vector_db import RetrievalResult
 from deepsearcher.vector_db.base import BaseVectorDB, deduplicate_results
 from deepsearcher.agent.collection_router import CollectionRouter
-from deepsearcher.rbase_db_loading import get_mysql_connection
+from deepsearcher.db.mysql_connection import get_mysql_connection
 from tqdm import tqdm
 
 # Structure division prompt
@@ -255,6 +255,11 @@ class OverviewRAG(RAGAgent):
             self.top_k_accepted_results = kwargs.get("top_k_accepted_results")
         else:
             self.top_k_accepted_results = 20
+
+        if kwargs.get("vector_db_collection"):
+            self.vector_db_collection = kwargs.get("vector_db_collection")
+        else:
+            self.vector_db_collection = "default"
         
         # Define the standard structure for academic reviews
         self.sections = [
@@ -418,7 +423,7 @@ class OverviewRAG(RAGAgent):
             log.color_print(f"<search> Collection router selected: {selected_collections} </search>\n")
         else:
             # Use default collection
-            selected_collections = ["default"]
+            selected_collections = [self.vector_db_collection]
             log.color_print(f"<search> Using default collection </search>\n")
         
         accepted_results = []
