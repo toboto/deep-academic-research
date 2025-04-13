@@ -225,5 +225,5 @@ class ChainOfRAG(RAGAgent):
                 text = result.metadata["wider_text"]
             else:
                 text = result.text
-            formatted_documents.append(f"<Document {i}>\n{text}\n<\Document {i}>")
+            formatted_documents.append(f"<Document {i}>\n{text}\n</Document {i}>")
         return "\n".join(formatted_documents)

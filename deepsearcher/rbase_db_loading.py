@@ -343,9 +343,9 @@ def insert_to_vector_db(rbase_config: dict,
                         corresponding_author_ids = article.corresponding_author_ids
                     
                     author_names = author_names[:200] if len(author_names) > 200 else author_names
-                    corresponding_author_names = corresponding_author_names[:200] if len(corresponding_author_names) > 200 else corresponding_author_names
-                    author_ids = author_ids[:200] if len(author_ids) > 200 else author_ids
-                    corresponding_author_ids = corresponding_author_ids[:200] if len(corresponding_author_ids) > 200 else corresponding_author_ids
+                    author_ids = author_ids[:500] if len(author_ids) > 500 else author_ids
+                    corresponding_author_names = corresponding_author_names[:40] if len(corresponding_author_names) > 40 else corresponding_author_names
+                    corresponding_author_ids = corresponding_author_ids[:100] if len(corresponding_author_ids) > 100 else corresponding_author_ids
 
                     doc.metadata.update({
                         'title': article.title,

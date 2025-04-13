@@ -57,11 +57,11 @@ class Milvus(BaseVectorDB):
             schema.add_field("keywords", DataType.ARRAY, element_type=DataType.VARCHAR, 
                 max_capacity=500, max_length=200)
             schema.add_field("authors", DataType.ARRAY, element_type=DataType.VARCHAR,
-                max_capacity=100, max_length=100)
+                max_capacity=200, max_length=100)
             schema.add_field("author_ids", DataType.ARRAY, element_type=DataType.INT64,
                 max_capacity=500)
             schema.add_field("corresponding_authors", DataType.ARRAY, element_type=DataType.VARCHAR,
-                max_capacity=20, max_length=100)
+                max_capacity=40, max_length=100)
             schema.add_field("corresponding_author_ids", DataType.ARRAY, element_type=DataType.INT64,
                 max_capacity=100)
             schema.add_field("impact_factor", DataType.FLOAT)
