@@ -129,21 +129,31 @@ def init_config(config: Configuration):
     llm = module_factory.create_llm()
     
     # Initialize reasoning and writing models if they are configured
+    log.debug("initializing reasoning_llm")
     if "reasoning_llm" in config.provide_settings:
         reasoning_llm = module_factory.create_reasoning_llm()
     else:
         reasoning_llm = llm  # Fallback to the default LLM if not configured
         
+    log.debug("initializing writing_llm")
     if "writing_llm" in config.provide_settings:
         writing_llm = module_factory.create_writing_llm()
     else:
         writing_llm = llm  # Fallback to the default LLM if not configured
         
+    log.debug("initializing embedding_model")
     embedding_model = module_factory.create_embedding()
+    
+    log.debug("initializing file_loader")
     file_loader = module_factory.create_file_loader()
+    
+    log.debug("initializing web_crawler")
     web_crawler = module_factory.create_web_crawler()
+    
+    log.debug("initializing vector_db")
     vector_db = module_factory.create_vector_db()
 
+    log.debug("initializing default_searcher")
     default_searcher = RAGRouter(
         llm=llm,
         rag_agents=[
@@ -174,22 +184,13 @@ def init_config(config: Configuration):
         text_window_splitter=True,
     )
 
+    log.debug("initializing academic_translator")
     # Initialize AcademicTranslator
     academic_translator = AcademicTranslator(llm=llm, rbase_settings=config.rbase_settings)
 
+    log.debug("initializing overview_rag")
     # Initialize OverviewRAG
     try:
-        # Initialize reasoning and writing models if not already initialized globally
-        if reasoning_llm is None and "reasoning_llm" in config.provide_settings:
-            reasoning_llm = module_factory.create_reasoning_llm()
-        elif reasoning_llm is None:
-            reasoning_llm = llm  # Fallback to default LLM
-        
-        if writing_llm is None and "writing_llm" in config.provide_settings:
-            writing_llm = module_factory.create_writing_llm()
-        elif writing_llm is None:
-            writing_llm = llm  # Fallback to default LLM
-        
         # Initialize OverviewRAG
         overview_rag = OverviewRAG(
             llm=llm,
@@ -204,5 +205,5 @@ def init_config(config: Configuration):
         
         log.info("OverviewRAG initialized successfully")
     except Exception as e:
-        log.error(f"Failed to initialize OverviewRAG: {e}")
+        log.critical(f"Failed to initialize OverviewRAG: {e}")
         overview_rag = None

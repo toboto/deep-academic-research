@@ -393,7 +393,7 @@ class OverviewRAG(RAGAgent):
             return {section: {"query": f"{topic} {section.lower()}", "conditions": []} 
                     for section in self.sections}
         except Exception as e:
-            log.error(f"Failed to generate queries: {e}")
+            log.critical(f"Failed to generate queries: {e}")
             # Use basic structure as fallback
             return {section: {"query": f"{topic} {section.lower()}", "conditions": []} 
                     for section in self.sections}
@@ -632,7 +632,7 @@ class OverviewRAG(RAGAgent):
                     reference = f"[{len(references) + 1}] {authors_str}. {article['title']}. {article['journal_name']}. {year};{article['doi']}"
                     references.append(reference)
         except Exception as e:
-            log.error(f"Failed to get reference information from database: {e}")
+            log.critical(f"Failed to get reference information from database: {e}")
             return text, "", 0
         
         # Replace citations in text

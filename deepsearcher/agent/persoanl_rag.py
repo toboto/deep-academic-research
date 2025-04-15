@@ -576,7 +576,7 @@ class PersonalRAG(OverviewRAG):
                     return result["id"]
                 return None
         except Exception as e:
-            log.error(f"Failed to get author ID: {e}")
+            log.critical(f"Failed to get author ID: {e}")
             return None
 
     def _get_author_articles(self, author_id: int) -> List[Dict[str, Any]]:
@@ -637,7 +637,7 @@ class PersonalRAG(OverviewRAG):
                 
                 return all_articles
         except Exception as e:
-            log.error(f"Failed to get author articles: {e}")
+            log.critical(f"Failed to get author articles: {e}")
             return []
 
     def _format_publications_for_prompt(self, articles: List[Dict[str, Any]]) -> str:
