@@ -9,7 +9,7 @@ from deepsearcher.vector_db.base import BaseVectorDB, CollectionInfo, RetrievalR
 
 
 class Milvus(BaseVectorDB):
-    """Milvus class is a subclass of DB class."""
+    """Milvus vector database implementation that extends BaseVectorDB."""
 
     client: MilvusClient = None
 
@@ -20,6 +20,15 @@ class Milvus(BaseVectorDB):
         token: str = "root:Milvus",
         db: str = "default",
     ):
+        """
+        Initialize Milvus client with connection parameters.
+        
+        Args:
+            default_collection: Name of the default collection
+            uri: Milvus server URI
+            token: Authentication token
+            db: Database name
+        """
         super().__init__(default_collection)
         self.default_collection = default_collection
         self.client = MilvusClient(uri=uri, token=token, db_name=db, timeout=30)
@@ -36,6 +45,18 @@ class Milvus(BaseVectorDB):
         *args,
         **kwargs,
     ):
+        """
+        Initialize a new collection with specified schema and indexes.
+        
+        Args:
+            dim: Dimension of the vector embeddings
+            collection: Collection name
+            description: Collection description
+            force_new_collection: Whether to drop existing collection
+            text_max_length: Maximum length for text field
+            reference_max_length: Maximum length for reference field
+            metric_type: Distance metric type for vector similarity
+        """
         if not collection:
             collection = self.default_collection
         if description is None:
@@ -95,15 +116,15 @@ class Milvus(BaseVectorDB):
         **kwargs,
     ):
         """
-        将数据插入到向量数据库
+        Insert data into the vector database.
         
-        参数:
-            collection: 集合名称
-            chunks: 要插入的数据块列表
-            batch_size: 批处理大小
+        Args:
+            collection: Collection name
+            chunks: List of data chunks to insert
+            batch_size: Batch size for insertion
             
-        返回:
-            包含插入结果的字典，包括总插入数量和ID列表
+        Returns:
+            Dictionary containing total insert count and list of inserted IDs
         """
         if not collection:
             collection = self.default_collection
@@ -142,7 +163,7 @@ class Milvus(BaseVectorDB):
         ]
         batch_datas = [datas[i : i + batch_size] for i in range(0, len(datas), batch_size)]
         
-        # 初始化结果汇总
+        # Initialize result summary
         total_result = {
             "insert_count": 0,
             "ids": []
@@ -151,13 +172,13 @@ class Milvus(BaseVectorDB):
         try:
             for batch_data in batch_datas:
                 res = self.client.insert(collection_name=collection, data=batch_data)
-                # 汇总结果
+                # Aggregate results
                 if res:
                     total_result["insert_count"] += res.get("insert_count", 0)
                     if "ids" in res:
-                        # 检查ids的类型并进行适当处理
+                        # Check and process IDs appropriately
                         total_result["ids"].extend(list(res["ids"]))
-            # 返回汇总结果
+            # Return aggregated results
             return total_result
         except Exception as e:
             log.critical(f"fail to insert data, error info: {e}")
@@ -172,6 +193,18 @@ class Milvus(BaseVectorDB):
         *args,
         **kwargs,
     ) -> List[RetrievalResult]:
+        """
+        Search for most similar vectors in the database.
+        
+        Args:
+            collection: Collection name
+            vector: Query vector
+            top_k: Number of most similar results to return
+            filter: Query filter expression in Milvus syntax
+            
+        Returns:
+            List of RetrievalResult objects containing search results
+        """
         if not collection:
             collection = self.default_collection
         try:
@@ -203,6 +236,12 @@ class Milvus(BaseVectorDB):
             return []
 
     def list_collections(self, *args, **kwargs) -> List[CollectionInfo]:
+        """
+        List all collections in the database.
+        
+        Returns:
+            List of CollectionInfo objects containing collection details
+        """
         collection_infos = []
         try:
             collections = self.client.list_collections()
@@ -219,6 +258,12 @@ class Milvus(BaseVectorDB):
         return collection_infos
 
     def clear_db(self, collection: str = "deepsearcher", *args, **kwargs):
+        """
+        Clear the specified collection from the database.
+        
+        Args:
+            collection: Name of the collection to clear
+        """
         if not collection:
             collection = self.default_collection
         try:
