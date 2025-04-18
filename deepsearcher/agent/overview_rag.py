@@ -758,6 +758,9 @@ class OverviewRAG(RAGAgent):
             self.top_k_per_section = kwargs.get("top_k_per_section")
         if kwargs.get("top_k_accepted_results"):
             self.top_k_accepted_results = kwargs.get("top_k_accepted_results")
+        if kwargs.get("vector_db_collection"):
+            self.vector_db_collection = kwargs.get("vector_db_collection")
+            self.route_collection = False
         # This method overrides the RAGAgent query method
         english_sections, chinese_sections, total_tokens = asyncio.run(
             self.generate_overview(query, **kwargs)

@@ -208,3 +208,6 @@ outputs/
 
 # gitignore examples
 gitignore_examples/
+
+# debug cache
+debug_cache/

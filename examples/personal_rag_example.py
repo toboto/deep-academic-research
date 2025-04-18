@@ -70,7 +70,9 @@ def main(query: str, output_file: str, verbose: bool = False, max_articles: int 
         max_articles=max_articles, 
         recent_months=recent_months,
         top_k_per_section=20,
-        top_k_accepted_results=20
+        top_k_accepted_results=20,
+        vector_db_collection=config.provide_settings['vector_db']['config']['default_collection'],
+        use_debug_cache=True
     )
     
     # 计算处理时间
