@@ -314,7 +314,7 @@ class OverviewRAG(RAGAgent):
         
         return cleaned_text, response.total_tokens
     
-    def _translate_to_english(self, text: str) -> str:
+    def _translate_to_english(self, text: str, user_dict: List[dict] = None) -> str:
         """
         Translate the input text to English.
         
@@ -324,9 +324,9 @@ class OverviewRAG(RAGAgent):
         Returns:
             Translated text in English
         """
-        return self.translator.translate(text, "en")
+        return self.translator.translate(text, "en", user_dict)
     
-    def _translate_to_chinese(self, text: str) -> str:
+    def _translate_to_chinese(self, text: str, user_dict: List[dict] = None) -> str:
         """
         Translate the input text to Chinese.
         
@@ -336,7 +336,7 @@ class OverviewRAG(RAGAgent):
         Returns:
             Translated text in Chinese
         """
-        return self.translator.translate(text, "zh")
+        return self.translator.translate(text, "zh", user_dict)
     
     def _generate_section_queries(self, topic: str) -> Dict[str, Dict[str, Any]]:
         """
@@ -578,7 +578,8 @@ class OverviewRAG(RAGAgent):
         Reorganize citations and generate a reference list.
         
         Extract citation IDs from the text, replace them with sequential numbers [1][2][3]...,
-        and generate a corresponding reference list.
+        and generate a corresponding reference list. Handles both single citations [123] and
+        multiple citations [123, 456] or [123,456].
         
         Args:
             text: Text containing citations
@@ -588,6 +589,12 @@ class OverviewRAG(RAGAgent):
         """
         log.color_print("<optimizing> Reorganizing references... </optimizing>\n")
         import re
+        
+        # First, convert multiple citations in a single bracket to separate citations
+        # e.g., [123, 456] -> [123][456]
+        text = re.sub(r'\[(\d+)\s*,\s*(\d+)\s*(?:,\s*\d+\s*)*\]', 
+                     lambda m: ''.join(f'[{id}]' for id in m.group(1).split(',') + m.group(2).split(',')), 
+                     text)
         
         # Extract all citation IDs
         reference_pattern = r'\[(\d+)\]'

@@ -284,14 +284,15 @@ class AcademicTranslator(BaseAgent):
         
         return glossary
     
-    def translate(self, text: str, target_lang: str) -> str:
+    def translate(self, text: str, target_lang: str, user_dict: List[dict] = None) -> str:
         """
         Translate text to the target language.
         
         Args:
             text: The text to translate
             target_lang: Target language, 'zh' or 'en'
-            
+            user_dict: List of dictionaries, each containing 'source' and 'translation' keys
+
         Returns:
             The translated text
             
@@ -321,9 +322,13 @@ class AcademicTranslator(BaseAgent):
         Please translate the following academic text from {self._get_language_name(source_lang)} to {self._get_language_name(target_lang)}.
         This is an academic text, please maintain the accuracy and academic style of professional terminology.
         
-        Here are some translation references for professional terms, please use these translations优先:
+        Here are some translation references for professional terms, please use these translations as a reference:
         """
-        
+
+        if user_dict is not None:
+            for term in user_dict:
+                prompt += f"\n- {term['source']}: {term['translation']}"
+
         # Add term glossary
         if glossary:
             for term, translation in glossary.items():
