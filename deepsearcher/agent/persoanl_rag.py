@@ -33,6 +33,12 @@ Return a JSON object with the following structure:
     "language": "en" or "zh"
 }}
 
+Important requirements:
+1. Remove any titles or honorifics from the name such as "教授" (Professor), "专家" (Expert), "院士", "老师" (Teacher), "先生" (Mr.), "女士" (Ms.), etc.
+2. Return only the person's actual name without any titles or honorifics
+3. For Chinese names, return the complete name characters without any titles
+4. For English names, return the full name without titles or honorifics
+
 Query: {query}
 
 Return only the JSON object without any explanations.
@@ -53,8 +59,11 @@ Guidelines:
 3. Map their research interests and specializations
 4. Highlight their unique academic characteristics
 5. Use appropriate academic language and maintain a scholarly tone
-6. Properly cite sources using [X] format
+6. Properly cite sources using [X] format, where X is the article ID given in the publications
 7. Maintain appropriate length (approximately 800-1200 words)
+8. Write this as a section that will appear within a larger document, not as a standalone article
+9. Do not write a conclusion for this single section
+10. Do not include a separate references list at the end; citations in the text are sufficient as the final document will compile all references
 
 Your response should be a polished section ready for inclusion in the final review.
 """
@@ -73,8 +82,11 @@ Guidelines:
 3. Map their research trajectory and progression
 4. Highlight major methodological and theoretical developments
 5. Use appropriate academic language and maintain a scholarly tone
-6. Properly cite sources using [X] format
+6. Properly cite sources using [X] format, where X is the article ID given in the publications
 7. Maintain appropriate length (approximately 800-1200 words)
+8. Write this as a section that will appear within a larger document, not as a standalone article
+9. Do not write a conclusion for this single section
+10. Do not include a separate references list at the end; citations in the text are sufficient as the final document will compile all references
 
 Your response should be a polished section ready for inclusion in the final review.
 """
@@ -93,8 +105,11 @@ Guidelines:
 3. Assess their practical applications and impact
 4. Highlight their unique research perspectives
 5. Use appropriate academic language and maintain a scholarly tone
-6. Properly cite sources using [X] format
+6. Properly cite sources using [X] format, where X is the article ID given in the publications
 7. Maintain appropriate length (approximately 800-1200 words)
+8. Write this as a section that will appear within a larger document, not as a standalone article
+9. Do not write a conclusion for this single section
+10. Do not include a separate references list at the end; citations in the text are sufficient as the final document will compile all references
 
 Your response should be a polished section ready for inclusion in the final review.
 """
@@ -113,8 +128,11 @@ Guidelines:
 3. Assess their collaboration networks
 4. Highlight their role in shaping research directions
 5. Use appropriate academic language and maintain a scholarly tone
-6. Properly cite sources using [X] format
+6. Properly cite sources using [X] format, where X is the article ID given in the publications
 7. Maintain appropriate length (approximately 800-1200 words)
+8. Write this as a section that will appear within a larger document, not as a standalone article
+9. Do not write a conclusion for this single section
+10. Do not include a separate references list at the end; citations in the text are sufficient as the final document will compile all references
 
 Your response should be a polished section ready for inclusion in the final review.
 """
@@ -133,8 +151,10 @@ Guidelines:
 3. Evaluate their capacity for innovation
 4. Assess their potential impact on the field
 5. Use appropriate academic language and maintain a scholarly tone
-6. Properly cite sources using [X] format
+6. Properly cite sources using [X] format, where X is the article ID given in the publications
 7. Maintain appropriate length (approximately 800-1200 words)
+8. Write this as a section that will appear within a larger document, not as a standalone article, do not need a conclusion for this section
+9. Do not include a separate references list at the end; citations in the text are sufficient as the final document will compile all references
 
 Your response should be a polished section ready for inclusion in the final review.
 """
@@ -551,7 +571,7 @@ class PersonalRAG(OverviewRAG):
         log.info(f"Extracted author name: {name}, language: {language}")
         return {"name": name, "language": language}
 
-    def _get_author_id(self, author_info: Dict[str, str]) -> Optional[int]:
+    def _get_author_data(self, author_info: Dict[str, str]) -> Optional[int]:
         """
         Get author ID from database based on name and language.
         
@@ -565,15 +585,15 @@ class PersonalRAG(OverviewRAG):
         try:
             with conn.cursor() as cursor:
                 if author_info["language"] == "en":
-                    query = "SELECT id FROM author WHERE name = %s"
+                    query = "SELECT id, ename, cname FROM author WHERE ename = %s"
                     cursor.execute(query, (author_info["name"],))
                 else:
-                    query = "SELECT id FROM author WHERE cname = %s"
+                    query = "SELECT id, ename, cname FROM author WHERE cname = %s"
                     cursor.execute(query, (author_info["name"],))
                 
                 result = cursor.fetchone()
                 if result:
-                    return result["id"]
+                    return result
                 return None
         except Exception as e:
             log.critical(f"Failed to get author ID: {e}")
@@ -597,7 +617,7 @@ class PersonalRAG(OverviewRAG):
                     SELECT a.id, a.title, a.journal_name, a.pubdate, a.doi, a.summary, a.impact_factor
                     FROM article a
                     JOIN author_article aa ON a.id = aa.article_id
-                    WHERE aa.author_id = %s AND a.raw_article_id = 0
+                    WHERE aa.author_id = %s AND a.base_id = 1
                     ORDER BY a.impact_factor DESC, a.pubdate DESC
                     LIMIT %s
                 """
@@ -610,7 +630,7 @@ class PersonalRAG(OverviewRAG):
                     SELECT a.id, a.title, a.journal_name, a.pubdate, a.doi, a.summary, a.impact_factor
                     FROM article a
                     JOIN author_article aa ON a.id = aa.article_id
-                    WHERE aa.author_id = %s AND a.raw_article_id = 0 AND a.pubdate >= %s
+                    WHERE aa.author_id = %s AND a.base_id = 1 AND a.pubdate >= %s
                     ORDER BY a.pubdate DESC
                     LIMIT %s
                 """
@@ -653,6 +673,7 @@ class PersonalRAG(OverviewRAG):
         formatted_articles = []
         for article in articles:
             formatted_article = f"""
+Article ID: {article['id']}
 Title: {article['title']}
 Journal: {article['journal_name']}
 Impact Factor: {article['impact_factor']}
@@ -749,6 +770,78 @@ Summary: {article['summary']}
             chunk_str += f"""<chunk_{i+1}>\n{chunk}\n</chunk_{i+1}>\n"""
         return chunk_str
 
+    def _get_debug_cache_key(self, author_id: int, section: str) -> str:
+        """
+        生成调试缓存的键值
+        
+        Args:
+            author_id: 作者ID
+            section: 段落名称
+            
+        Returns:
+            缓存键值
+        """
+        return f"debug_cache_{author_id}_{section}"
+
+    def _save_debug_cache(self, author_id: int, section: str, content: str, title: str, tokens: int) -> None:
+        """
+        保存调试缓存
+        
+        Args:
+            author_id: 作者ID
+            section: 段落名称
+            content: 段落内容
+            title: 优化后的标题
+            tokens: 使用的token数量
+        """
+        import json
+        import os
+        
+        cache_dir = "debug_cache"
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+            
+        cache_file = os.path.join(cache_dir, f"{self._get_debug_cache_key(author_id, section)}.json")
+        
+        cache_data = {
+            "content": content,
+            "title": title,
+            "tokens": tokens
+        }
+        
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+        log.debug(f"Saved debug cache for section {section}")
+
+    def _load_debug_cache(self, author_id: int, section: str) -> Optional[Tuple[str, str, int]]:
+        """
+        加载调试缓存
+        
+        Args:
+            author_id: 作者ID
+            section: 段落名称
+            
+        Returns:
+            如果找到缓存，返回(内容, 标题, token数量)的元组，否则返回None
+        """
+        import json
+        import os
+        
+        cache_file = os.path.join("debug_cache", f"{self._get_debug_cache_key(author_id, section)}.json")
+        
+        if not os.path.exists(cache_file):
+            return None
+            
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+                log.debug(f"Loaded debug cache for section {section}")
+                return cache_data["content"], cache_data["title"], cache_data["tokens"]
+        except Exception as e:
+            log.error(f"Error loading debug cache: {e}")
+            return None
+
     async def generate_overview(self, query: str, **kwargs) -> Tuple[Dict[str, str], Dict[str, str], int]:
         """
         Generate a comprehensive overview of the researcher's work.
@@ -759,29 +852,45 @@ Summary: {article['summary']}
         Returns:
             Tuple of (compiled English sections, Chinese translated sections, total tokens used)
         """
+        english_topic = self.translator.translate(query, "en")
         # Extract author information
         author_info = self._extract_author_info(query)
         if not author_info["name"]:
             raise ValueError("Could not extract author name from query")
             
         # Get author ID
-        author_id = self._get_author_id(author_info)
-        if not author_id:
+        author = self._get_author_data(author_info)
+        if not author:
             raise ValueError(f"No author found in database for name: {author_info['name']}")
             
         # Get author's articles
-        articles = self._get_author_articles(author_id)
+        articles = self._get_author_articles(author['id'])
         if not articles:
             raise ValueError(f"No articles found for author: {author_info['name']}")
         
         # Process each section
         english_sections = {}
+        optimized_section_titles = {}
         total_tokens = 0
         
+        # 检查是否使用调试缓存
+        use_debug_cache = kwargs.get("use_debug_cache", False)
+        
         for section in self.sections:
+            # 如果使用调试缓存，尝试从缓存加载
+            if use_debug_cache:
+                cache_result = self._load_debug_cache(author['id'], section)
+                if cache_result:
+                    content, title, tokens = cache_result
+                    english_sections[section] = content
+                    optimized_section_titles[section] = title
+                    total_tokens += tokens
+                    log.color_print(f"<debug> Using cached content for section '{section}' </debug>\n")
+                    continue
+            
             # Generate initial section content
             section_content, content_tokens = self._generate_section_content(
-                section, author_info["name"], articles
+                section, author["ename"], articles
             )
             total_tokens += content_tokens
             
@@ -789,7 +898,7 @@ Summary: {article['summary']}
             questions = self._generate_questions(section, section_content)
             
             # Search for additional content based on questions
-            additional_results = await self._search_for_questions(questions, author_id)
+            additional_results = await self._search_for_questions(questions, author['id'])
             
             # Optimize section with additional findings
             optimized_title, optimized_content, optimize_tokens = self._optimize_section(
@@ -797,40 +906,61 @@ Summary: {article['summary']}
             )
             total_tokens += optimize_tokens
             
-            english_sections[optimized_title] = optimized_content
-        
+            english_sections[section] = optimized_content
+            optimized_section_titles[section] = optimized_title
+            
+            # 保存调试缓存
+            if use_debug_cache:
+                self._save_debug_cache(author['id'], section, optimized_content, optimized_title, content_tokens + optimize_tokens)
+
+        # Combine all sections into full text
+        full_text = ""
+        for section in self.sections:
+            full_text += f"## {optimized_section_titles[section]}\n\n{english_sections[section]}\n\n"
+
+        # Compile and refine the final review
+        compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
+        total_tokens += compile_tokens
+
         # Generate abstract and conclusion
         abstract, conclusion, abstract_tokens = self._generate_abstract_and_conclusion(
-            author_info["name"], "\n\n".join(english_sections.values())
+            english_topic, compiled_text
         )
         total_tokens += abstract_tokens
         
         # Reorganize references
-        reorganized_text, references_text, ref_tokens = self._reorganize_references(
-            "\n\n".join(english_sections.values())
-        )
+        reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
         
         # If no references found in text, generate from articles
         if not references_text:
             references_text = self._generate_references(articles)
             
         total_tokens += ref_tokens
+
+        # Parse sections from reorganized text
+        import re
+        compiled_sections = {}
+        section_pattern = r"## (.*?)\n\n(.*?)(?=\n\n## |$)"
+        for match in re.finditer(section_pattern, reorganized_text, re.DOTALL):
+            section_name = match.group(1).strip()
+            section_content = match.group(2).strip()
+            compiled_sections[section_name] = section_content
         
         # Add abstract, conclusion and references
-        english_sections["Abstract"] = abstract
-        english_sections["Conclusion"] = conclusion
-        english_sections["References"] = references_text
+        compiled_sections["Abstract"] = abstract
+        compiled_sections["Conclusion"] = conclusion
+        compiled_sections["References"] = references_text
             
         # Translate each section to Chinese
         chinese_sections = {}
-        for section, content in english_sections.items():
+        for section, content in compiled_sections.items():
             if section != "References":  # Don't translate references
                 log.color_print(f"<translating> Translating section '{section}' to Chinese... </translating>\n")
                 chinese_sections[section] = self._translate_to_chinese(content)
             else:
                 chinese_sections[section] = content
             
-        return english_sections, chinese_sections, total_tokens
+        return compiled_sections, chinese_sections, total_tokens
         
     def query(self, query: str, **kwargs) -> Tuple[str, List[RetrievalResult], int]:
         """
@@ -848,6 +978,9 @@ Summary: {article['summary']}
             self.max_articles = kwargs.get("max_articles")
         if kwargs.get("recent_months"):
             self.recent_months = kwargs.get("recent_months")
+        if kwargs.get("vector_db_collection"):
+            self.vector_db_collection = kwargs.get("vector_db_collection")
+            self.route_collection = False
             
         try:
             # Generate overview
@@ -859,11 +992,12 @@ Summary: {article['summary']}
             self.english_response = f"# Research Overview: {query}\n\n"
             self.chinese_response = f"# 研究综述：{query}\n\n"
         
-            # Add sections in order
-            overview_sections = ['Abstract']
-            overview_sections.extend(self.sections)
-            overview_sections.append('Conclusion')
-            overview_sections.append('References')
+            # 构建有序的章节列表
+            overview_sections = list(english_sections.keys())
+            # 确保Abstract在最前面
+            if 'Abstract' in overview_sections:
+                overview_sections.remove('Abstract')
+                overview_sections.insert(0, 'Abstract')
                 
             for section in overview_sections:
                 if section in english_sections:
@@ -888,3 +1022,159 @@ Summary: {article['summary']}
         Instead, the query method handles the entire process.
         """
         return [], 0, {}
+
+    def _generate_questions(self, section_title: str, section_content: str) -> List[str]:
+        """
+        为指定部分生成具体的研究问题，以深化分析
+        
+        Args:
+            section_title: 部分标题
+            section_content: 部分内容
+            
+        Returns:
+            问题列表
+        """
+        log.color_print(f"<reasoning> Generating questions for section '{section_title}'... </reasoning>\n")
+        
+        prompt = QUESTION_GENERATION_PROMPT.format(
+            section_title=section_title,
+            section_content=section_content
+        )
+        
+        try:
+            response = self.reasoning_llm.chat([{"role": "user", "content": prompt}])
+            
+            # 提取问题列表
+            questions = [q.strip() for q in response.content.strip().split('\n') if q.strip()]
+            
+            # 确保不超过5个问题
+            questions = questions[:5]
+            
+            log.debug(f"Generated {len(questions)} questions for section '{section_title}'")
+            return questions
+        except Exception as e:
+            log.error(f"Failed to generate questions: {e}")
+            # 返回一个基本问题作为后备
+            return [f"What are the latest developments in {section_title}?"]
+
+    async def _search_for_questions(self, questions: List[str], author_id: int) -> str:
+        """
+        为生成的问题搜索额外内容
+        
+        Args:
+            questions: 问题列表
+            author_id: 作者ID
+            
+        Returns:
+            合并的搜索结果
+        """
+        if not questions:
+            return ""
+            
+        log.color_print("<searching> Searching for additional content based on questions... </searching>\n")
+        
+        consumed_tokens = 0
+        if self.route_collection:
+            # Use CollectionRouter to select appropriate collections
+            selected_collections, n_token_route = self.collection_router.invoke(query=questions[0])
+            consumed_tokens += n_token_route
+            log.color_print(f"<search> Collection router selected: {selected_collections} </search>\n")
+        else:
+            # Use default collection
+            selected_collections = [self.vector_db_collection]
+            log.color_print(f"<search> Using provided collection: {self.vector_db_collection} </search>\n")
+
+        all_results = []
+        for question in questions:
+            query_vector = self.embedding_model.embed_query(question)
+            for collection in selected_collections:
+                try:
+                    # 搜索向量数据库
+                    results = self.vector_db.search_data(
+                        collection=collection,
+                        vector=query_vector,
+                        filter=f"ARRAY_CONTAINS(author_ids, {author_id})",
+                        top_k=self.top_k_per_section
+                    )
+                    
+                    # 过滤并提取文本
+                    for result in results:
+                        if self._is_relevant(question, result.text):
+                            all_results.append(result.text)
+                except Exception as e:
+                    log.error(f"Error searching for question '{question}': {e}")
+                
+        # 去重和合并搜索结果
+        unique_results = list(set(all_results))
+        formatted_results = self._format_chunk_texts(unique_results)
+        
+        return formatted_results
+        
+    def _is_relevant(self, query: str, chunk: str) -> bool:
+        """
+        判断检索的块是否与查询相关
+        
+        Args:
+            query: 查询文本
+            chunk: 检索到的文本块
+            
+        Returns:
+            如果相关则返回True，否则返回False
+        """
+        prompt = RERANK_PROMPT.format(
+            query=query,
+            retrieved_chunk=chunk
+        )
+        
+        try:
+            response = self.llm.chat([{"role": "user", "content": prompt}])
+            return "YES" in response.content.upper()
+        except Exception as e:
+            log.error(f"Error in relevance check: {e}")
+            return True  # 默认相关，以免错过内容
+
+    def _optimize_section(self, section_title: str, section_content: str, additional_findings: str) -> Tuple[str, str, int]:
+        """
+        基于额外发现优化部分内容
+        
+        Args:
+            section_title: 原始部分标题
+            section_content: 原始部分内容
+            additional_findings: 额外研究发现
+            
+        Returns:
+            优化后的标题、内容和使用的令牌数
+        """
+        if not additional_findings:
+            return section_title, section_content, 0
+            
+        log.color_print(f"<optimizing> Optimizing section '{section_title}' with additional findings... </optimizing>\n")
+        
+        prompt = SECTION_OPTIMIZATION_PROMPT.format(
+            section_title=section_title,
+            section_content=section_content,
+            additional_findings=additional_findings
+        )
+        
+        try:
+            response = self.writing_llm.chat([{"role": "user", "content": prompt}])
+            
+            # 解析响应以获取标题和内容
+            content = response.content.strip()
+            
+            # 提取标题和内容
+            title_match = re.search(r"TITLE:\s*(.*?)(?:\n|$)", content)
+            content_match = re.search(r"CONTENT:(.*?)(?:$)", content, re.DOTALL)
+            
+            optimized_title = title_match.group(1).strip() if title_match else section_title
+            optimized_content = content_match.group(1).strip() if content_match else content
+            
+            # 清理文本，如果没有匹配到内容部分
+            if not content_match:
+                # 移除TITLE行，余下的作为内容
+                optimized_content = re.sub(r"TITLE:\s*(.*?)(?:\n|$)", "", content, flags=re.DOTALL).strip()
+            
+            return optimized_title, optimized_content, response.total_tokens
+        except Exception as e:
+            log.error(f"Failed to optimize section: {e}")
+            return section_title, section_content, 0
