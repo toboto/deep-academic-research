@@ -47,7 +47,7 @@ Return only the JSON object without any explanations.
 # Section content generation prompts
 ACADEMIC_GENE_PROMPT = """
 You are an expert academic researcher analyzing a researcher's academic background and expertise.
-Based on the provided publication data, write a comprehensive section about the researcher's academic gene map.
+Based on the provided publications data, write a comprehensive section about the researcher's academic gene map.
 
 Researcher: {researcher_name}
 Publications:
@@ -196,6 +196,10 @@ Guidelines for Improvement:
 5. Ensure proper citation of sources
 6. Keep appropriate academic tone
 7. Maintain appropriate length
+8. The additional findings are formatted as [X] followed by text in an article, where X is the article id of the additional findings
+9. Properly cite sources using [X] format, where X is the article ID given in the publications
+10. Write this as a section that will appear within a larger document, not as a standalone article
+11. Do not write a conclusion for this single section
 
 Your response should include:
 1. A suggested section title (if different from original)
@@ -755,7 +759,7 @@ Summary: {article['summary']}
                 
         return "\n\n".join(references)
         
-    def _format_chunk_texts(self, chunk_texts: List[str]) -> str:
+    def _format_chunk_texts(self, chunks: List[RetrievalResult]) -> str:
         """
         Format chunk texts for inclusion in prompts.
         
@@ -766,8 +770,8 @@ Summary: {article['summary']}
             Formatted string of chunk texts
         """
         chunk_str = ""
-        for i, chunk in enumerate(chunk_texts):
-            chunk_str += f"""<chunk_{i+1}>\n{chunk}\n</chunk_{i+1}>\n"""
+        for chunk in chunks:
+            chunk_str += f"""[{chunk.metadata['reference_id']}]\n{chunk.text}\n\n"""
         return chunk_str
 
     def _get_debug_cache_key(self, author_id: int, section: str) -> str:
@@ -862,7 +866,11 @@ Summary: {article['summary']}
         author = self._get_author_data(author_info)
         if not author:
             raise ValueError(f"No author found in database for name: {author_info['name']}")
-            
+        
+        author_translate_dict = None
+        if author_info.get("language", "") == "zh" and author['cname'] != None:
+            author_translate_dict = [{"source": author['cname'], "translation": author['ename']}]
+
         # Get author's articles
         articles = self._get_author_articles(author['id'])
         if not articles:
@@ -878,7 +886,7 @@ Summary: {article['summary']}
         
         for section in self.sections:
             # 如果使用调试缓存，尝试从缓存加载
-            if use_debug_cache:
+            if self.verbose and use_debug_cache:
                 cache_result = self._load_debug_cache(author['id'], section)
                 if cache_result:
                     content, title, tokens = cache_result
@@ -909,8 +917,8 @@ Summary: {article['summary']}
             english_sections[section] = optimized_content
             optimized_section_titles[section] = optimized_title
             
-            # 保存调试缓存
-            if use_debug_cache:
+            # Save debug cache
+            if self.verbose:
                 self._save_debug_cache(author['id'], section, optimized_content, optimized_title, content_tokens + optimize_tokens)
 
         # Combine all sections into full text
@@ -940,6 +948,7 @@ Summary: {article['summary']}
         # Parse sections from reorganized text
         import re
         compiled_sections = {}
+        compiled_sections["Abstract"] = abstract
         section_pattern = r"## (.*?)\n\n(.*?)(?=\n\n## |$)"
         for match in re.finditer(section_pattern, reorganized_text, re.DOTALL):
             section_name = match.group(1).strip()
@@ -947,18 +956,18 @@ Summary: {article['summary']}
             compiled_sections[section_name] = section_content
         
         # Add abstract, conclusion and references
-        compiled_sections["Abstract"] = abstract
         compiled_sections["Conclusion"] = conclusion
         compiled_sections["References"] = references_text
             
         # Translate each section to Chinese
         chinese_sections = {}
         for section, content in compiled_sections.items():
+            section_title = self._translate_to_chinese(section, author_translate_dict)
             if section != "References":  # Don't translate references
                 log.color_print(f"<translating> Translating section '{section}' to Chinese... </translating>\n")
-                chinese_sections[section] = self._translate_to_chinese(content)
+                chinese_sections[section_title] = self._translate_to_chinese(content, author_translate_dict)
             else:
-                chinese_sections[section] = content
+                chinese_sections[section_title] = content
             
         return compiled_sections, chinese_sections, total_tokens
         
@@ -991,24 +1000,15 @@ Summary: {article['summary']}
             # Format the response with both English and Chinese content
             self.english_response = f"# Research Overview: {query}\n\n"
             self.chinese_response = f"# 研究综述：{query}\n\n"
+
+            for section in english_sections:
+                self.english_response += f"## {section}\n\n"
+                self.english_response += f"{english_sections[section]}\n\n"
+
+            for section in chinese_sections:
+                self.chinese_response += f"## {section}\n\n"
+                self.chinese_response += f"{chinese_sections[section]}\n\n"
         
-            # 构建有序的章节列表
-            overview_sections = list(english_sections.keys())
-            # 确保Abstract在最前面
-            if 'Abstract' in overview_sections:
-                overview_sections.remove('Abstract')
-                overview_sections.insert(0, 'Abstract')
-                
-            for section in overview_sections:
-                if section in english_sections:
-                    self.english_response += f"## {section}\n\n"
-                    self.english_response += f"{english_sections[section]}\n\n"
-                        
-                # Add translated section to Chinese response
-                if section in chinese_sections:
-                    self.chinese_response += self.translator.translate(f"## {section}", "zh") + "\n\n"
-                    self.chinese_response += f"{chinese_sections[section]}\n\n"
-                    
             return self.english_response, [], total_tokens
             
         except Exception as e:
@@ -1100,12 +1100,15 @@ Summary: {article['summary']}
                     # 过滤并提取文本
                     for result in results:
                         if self._is_relevant(question, result.text):
-                            all_results.append(result.text)
+                            cleaned_text, clean_tokens = self._clean_chunk_text(result.text)
+                            consumed_tokens += clean_tokens
+                            result.text = cleaned_text
+                            all_results.append(result)
                 except Exception as e:
                     log.error(f"Error searching for question '{question}': {e}")
                 
         # 去重和合并搜索结果
-        unique_results = list(set(all_results))
+        unique_results = deduplicate_results(all_results)
         formatted_results = self._format_chunk_texts(unique_results)
         
         return formatted_results
