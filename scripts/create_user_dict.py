@@ -7,31 +7,31 @@ Reads data from the concept table in rbase's MySQL database, extracts Chinese na
 and outputs them to rbase_dict_cn.txt and rbase_dict_en.txt files respectively.
 """
 
+import logging
 import os
 import sys
+from typing import Dict, List, Tuple
+
 import pymysql
-import logging
-from typing import List, Dict, Tuple, Optional
-from deepsearcher.tools.log import color_print, error, warning, info, set_dev_mode
+from tqdm import tqdm
+
+from deepsearcher import configuration
+from deepsearcher.tools.log import color_print, error, info, set_dev_mode, warning
 
 # Suppress unnecessary log output
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# Add project root directory to system path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from deepsearcher import configuration
 
 class ConceptDictCreator:
     """
-    Reads data from the concept table in MySQL database 
+    Reads data from the concept table in MySQL database
     and generates user dictionary files required by jieba library.
     """
-    
+
     def __init__(self, config_path: str = "../config.rbase.yaml"):
         """
         Initialize the ConceptDictCreator class.
-        
+
         Args:
             config_path: Configuration file path
         """
@@ -39,13 +39,17 @@ class ConceptDictCreator:
         configuration.init_config(self.config)
         self.db_config = self.config.rbase_settings["database"]["config"]
         # Get dictionary paths from configuration, use default values if not specified
-        self.cn_dict_path = self.config.rbase_settings.get("dict_path", {}).get("cn", "rbase_dict_cn.txt")
-        self.en_dict_path = self.config.rbase_settings.get("dict_path", {}).get("en", "rbase_dict_en.txt")
-        
+        self.cn_dict_path = self.config.rbase_settings.get("dict_path", {}).get(
+            "cn", "rbase_dict_cn.txt"
+        )
+        self.en_dict_path = self.config.rbase_settings.get("dict_path", {}).get(
+            "en", "rbase_dict_en.txt"
+        )
+
     def connect_to_db(self) -> pymysql.connections.Connection:
         """
         Connect to MySQL database.
-        
+
         Returns:
             Database connection object
         """
@@ -56,22 +60,22 @@ class ConceptDictCreator:
                 password=self.db_config["password"],
                 database=self.db_config["database"],
                 port=self.db_config["port"],
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
+                charset="utf8mb4",
+                cursorclass=pymysql.cursors.DictCursor,
             )
             info("Successfully connected to MySQL database")
             return connection
         except Exception as e:
             error(f"Failed to connect to database: {e}")
             raise
-    
+
     def get_concepts(self, connection: pymysql.connections.Connection) -> List[Dict]:
         """
         Get data from the concept table in the database.
-        
+
         Args:
             connection: Database connection object
-            
+
         Returns:
             List containing concept table data
         """
@@ -86,21 +90,21 @@ class ConceptDictCreator:
         except Exception as e:
             error(f"Failed to query database: {e}")
             raise
-    
+
     def get_word_part_of_speech(self, word: str, intro: str) -> str:
         """
         Use LLM to determine the part of speech of a word.
-        
+
         Args:
             word: The word that needs part-of-speech determination
-            
+
         Returns:
             Part-of-speech tag
         """
         # Check if the word contains comma or pause mark, indicating it's a phrase
-        if any(separator in word for separator in [',', '，', '、']):
+        if any(separator in word for separator in [",", "，", "、"]):
             return "phrase"
-            
+
         prompt = f"""
         请根据用户提供的中文词语及对词语的英文解释，分析以下中文词语并确定其词性。
         首先，将词语分类为以下类型之一：
@@ -154,69 +158,95 @@ class ConceptDictCreator:
         
         回答（仅一个词）：
         """
-        
+
         try:
             response = configuration.llm.chat([{"role": "user", "content": prompt}])
             pos = response.content.strip()
-            
+
             # Define valid part-of-speech tags including our custom ones
-            valid_pos_tags = ['n', 'nr', 'ns', 'nt', 'nz', 
-                              'v', 'vd', 'vn', 'a', 'ad', 'an', 
-                              'r', 'm', 'q', 'd', 'p', 'c', 'j', 'nw', 'eng', 
-                              'PER', 'LOC', 'ORG', 'TIME',
-                              'normal', 'phrase']
-            
+            valid_pos_tags = [
+                "n",
+                "nr",
+                "ns",
+                "nt",
+                "nz",
+                "v",
+                "vd",
+                "vn",
+                "a",
+                "ad",
+                "an",
+                "r",
+                "m",
+                "q",
+                "d",
+                "p",
+                "c",
+                "j",
+                "nw",
+                "eng",
+                "PER",
+                "LOC",
+                "ORG",
+                "TIME",
+                "normal",
+                "phrase",
+            ]
+
             # If response contains multiple words, take only the first word
-            if ' ' in pos:
+            if " " in pos:
                 pos = pos.split()[0]
-                
+
             # If the returned part of speech is not valid, default to noun(n)
             if not pos or pos not in valid_pos_tags:
-                warning(f"LLM returned invalid part of speech '{pos}' for '{word}', using default part of speech 'n'")
+                warning(
+                    f"LLM returned invalid part of speech '{pos}' for '{word}', using default part of speech 'n'"
+                )
                 pos = "n"
-                
+
             return pos
         except Exception as e:
             error(f"Failed to call LLM: {e}")
             return "n"  # Default to noun
-    
+
     def create_dict_files(self, concepts: List[Dict]) -> Tuple[int, int]:
         """
         Create user dictionary files.
-        
+
         Args:
             concepts: List containing concept table data
-            
+
         Returns:
             Tuple containing the number of entries in Chinese and English dictionaries
         """
         cn_count = 0
         en_count = 0
-        
+
         try:
-            with open(self.cn_dict_path, 'w', encoding='utf-8') as cn_file, \
-                 open(self.en_dict_path, 'w', encoding='utf-8') as en_file:
-                
+            with (
+                open(self.cn_dict_path, "w", encoding="utf-8") as cn_file,
+                open(self.en_dict_path, "w", encoding="utf-8") as en_file,
+            ):
                 # Use tqdm to create progress bar
-                from tqdm import tqdm
-                
                 total = len(concepts)
-                for concept in tqdm(concepts, desc="Creating dictionary", total=total, unit="entries"):
+                for concept in tqdm(
+                    concepts, desc="Creating dictionary", total=total, unit="entries"
+                ):
                     # Process Chinese name
                     pos = "n"
-                    if concept['cname'] and len(concept['cname'].strip()) > 0:
-                        cname = concept['cname'].strip()
-                        pos = self.get_word_part_of_speech(cname, concept['intro'])
+                    if concept["cname"] and len(concept["cname"].strip()) > 0:
+                        cname = concept["cname"].strip()
+                        pos = self.get_word_part_of_speech(cname, concept["intro"])
                         if pos == "phrase" or pos == "normal":
                             if pos == "normal":
                                 warning(f"LLM returned 'normal' for '{cname}', skipping")
                             continue
                         cn_file.write(f"{cname} 1000 {pos}\n")
                         cn_count += 1
-                    
+
                     # Process English name
-                    if concept['name'] and len(concept['name'].strip()) > 0:
-                        name = concept['name'].strip()
+                    if concept["name"] and len(concept["name"].strip()) > 0:
+                        name = concept["name"].strip()
                         # English words default to foreign word part of speech (eng)
                         en_file.write(f"{name} 1000 {pos}\n")
                         en_count += 1
@@ -226,7 +256,7 @@ class ConceptDictCreator:
         except Exception as e:
             error(f"Failed to create dictionary files: {e}")
             raise
-    
+
     def run(self) -> None:
         """
         Run the dictionary creation process.
@@ -240,6 +270,7 @@ class ConceptDictCreator:
         except Exception as e:
             error(f"Dictionary creation failed: {e}")
             sys.exit(1)
+
 
 if __name__ == "__main__":
     set_dev_mode(True)

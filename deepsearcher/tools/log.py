@@ -1,5 +1,5 @@
-import logging
 import inspect
+import logging
 import os
 
 from termcolor import colored
@@ -16,10 +16,10 @@ class ColoredFormatter(logging.Formatter):
 
     def format(self, record):
         # If custom caller info is provided, use it
-        if hasattr(record, 'custom_filename') and hasattr(record, 'custom_lineno'):
+        if hasattr(record, "custom_filename") and hasattr(record, "custom_lineno"):
             record.filename = record.custom_filename
             record.lineno = record.custom_lineno
-            
+
         # all line in log will be colored
         log_message = super().format(record)
         return colored(log_message, self.COLORS.get(record.levelname, "white"))
@@ -40,7 +40,9 @@ class ColoredFormatter(logging.Formatter):
 
 # config log
 dev_logger = logging.getLogger("dev")
-dev_formatter = ColoredFormatter("%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s")
+dev_formatter = ColoredFormatter(
+    "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
+)
 dev_handler = logging.StreamHandler()
 dev_handler.setFormatter(dev_formatter)
 dev_logger.addHandler(dev_handler)
@@ -70,81 +72,92 @@ def set_level(level):
 
 def debug(message):
     """Debug log
-    
+
     Records debug information and captures the caller's filename and line number
     """
     if dev_mode:
         # Get caller frame info
         caller = inspect.currentframe().f_back
         # Use custom_filename and custom_lineno to avoid overwriting built-in LogRecord attributes
-        dev_logger.debug(message, 
-                     extra={
-                         'custom_filename': os.path.basename(caller.f_code.co_filename),
-                         'custom_lineno': caller.f_lineno
-                     })
+        dev_logger.debug(
+            message,
+            extra={
+                "custom_filename": os.path.basename(caller.f_code.co_filename),
+                "custom_lineno": caller.f_lineno,
+            },
+        )
 
 
 def info(message):
     """Info log
-    
+
     Records general information and captures the caller's filename and line number
     """
     if dev_mode:
         caller = inspect.currentframe().f_back
-        dev_logger.info(message, 
-                    extra={
-                        'custom_filename': os.path.basename(caller.f_code.co_filename),
-                        'custom_lineno': caller.f_lineno
-                    })
+        dev_logger.info(
+            message,
+            extra={
+                "custom_filename": os.path.basename(caller.f_code.co_filename),
+                "custom_lineno": caller.f_lineno,
+            },
+        )
 
 
 def warning(message):
     """Warning log
-    
+
     Records warning information and captures the caller's filename and line number
     """
     if dev_mode:
         caller = inspect.currentframe().f_back
-        dev_logger.warning(message, 
-                       extra={
-                           'custom_filename': os.path.basename(caller.f_code.co_filename),
-                           'custom_lineno': caller.f_lineno
-                       })
+        dev_logger.warning(
+            message,
+            extra={
+                "custom_filename": os.path.basename(caller.f_code.co_filename),
+                "custom_lineno": caller.f_lineno,
+            },
+        )
 
 
 def error(message):
     """Error log
-    
+
     Records error information and captures the caller's filename and line number
     """
     if dev_mode:
         caller = inspect.currentframe().f_back
-        dev_logger.error(message, 
-                     extra={
-                         'custom_filename': os.path.basename(caller.f_code.co_filename),
-                         'custom_lineno': caller.f_lineno
-                     }, 
-                     exc_info=True)
+        dev_logger.error(
+            message,
+            extra={
+                "custom_filename": os.path.basename(caller.f_code.co_filename),
+                "custom_lineno": caller.f_lineno,
+            },
+            exc_info=True,
+        )
 
 
 def critical(message):
     """Critical error log
-    
+
     Records critical error information, captures the caller's filename and line number,
     then raises a runtime exception
     """
     caller = inspect.currentframe().f_back
-    dev_logger.critical(message, 
-                    extra={
-                        'custom_filename': os.path.basename(caller.f_code.co_filename),
-                        'custom_lineno': caller.f_lineno
-                    })
+    dev_logger.critical(
+        message,
+        extra={
+            "custom_filename": os.path.basename(caller.f_code.co_filename),
+            "custom_lineno": caller.f_lineno,
+        },
+    )
     raise RuntimeError(message)
 
 
 def color_print(message, **kwargs):
     """Print colored information"""
     progress_logger.info(message)
+
 
 def color_print_debug(message, **kwargs):
     """Print colored debug information"""

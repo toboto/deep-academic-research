@@ -22,7 +22,7 @@ class Milvus(BaseVectorDB):
     ):
         """
         Initialize Milvus client with connection parameters.
-        
+
         Args:
             default_collection: Name of the default collection
             uri: Milvus server URI
@@ -47,7 +47,7 @@ class Milvus(BaseVectorDB):
     ):
         """
         Initialize a new collection with specified schema and indexes.
-        
+
         Args:
             dim: Dimension of the vector embeddings
             collection: Collection name
@@ -75,16 +75,36 @@ class Milvus(BaseVectorDB):
             schema.add_field("text", DataType.VARCHAR, max_length=text_max_length)
             schema.add_field("reference", DataType.VARCHAR, max_length=reference_max_length)
             schema.add_field("reference_id", DataType.INT64)
-            schema.add_field("keywords", DataType.ARRAY, element_type=DataType.VARCHAR, 
-                max_capacity=500, max_length=200)
-            schema.add_field("authors", DataType.ARRAY, element_type=DataType.VARCHAR,
-                max_capacity=200, max_length=100)
-            schema.add_field("author_ids", DataType.ARRAY, element_type=DataType.INT64,
-                max_capacity=500)
-            schema.add_field("corresponding_authors", DataType.ARRAY, element_type=DataType.VARCHAR,
-                max_capacity=40, max_length=100)
-            schema.add_field("corresponding_author_ids", DataType.ARRAY, element_type=DataType.INT64,
-                max_capacity=100)
+            schema.add_field(
+                "keywords",
+                DataType.ARRAY,
+                element_type=DataType.VARCHAR,
+                max_capacity=500,
+                max_length=200,
+            )
+            schema.add_field(
+                "authors",
+                DataType.ARRAY,
+                element_type=DataType.VARCHAR,
+                max_capacity=200,
+                max_length=100,
+            )
+            schema.add_field(
+                "author_ids", DataType.ARRAY, element_type=DataType.INT64, max_capacity=500
+            )
+            schema.add_field(
+                "corresponding_authors",
+                DataType.ARRAY,
+                element_type=DataType.VARCHAR,
+                max_capacity=40,
+                max_length=100,
+            )
+            schema.add_field(
+                "corresponding_author_ids",
+                DataType.ARRAY,
+                element_type=DataType.INT64,
+                max_capacity=100,
+            )
             schema.add_field("impact_factor", DataType.FLOAT)
             schema.add_field("pubdate", DataType.INT64)
             schema.add_field("metadata", DataType.JSON, nullable=True)
@@ -92,10 +112,22 @@ class Milvus(BaseVectorDB):
             index_params.add_index(field_name="embedding", metric_type=metric_type)
             index_params.add_index(field_name="keywords", index_type="", index_name="keywords_idx")
             index_params.add_index(field_name="authors", index_type="", index_name="authors_idx")
-            index_params.add_index(field_name="author_ids", index_type="", index_name="author_ids_idx")
-            index_params.add_index(field_name="corresponding_authors", index_type="", index_name="corresponding_authors_idx")
-            index_params.add_index(field_name="corresponding_author_ids", index_type="", index_name="corresponding_author_ids_idx")
-            index_params.add_index(field_name="impact_factor", index_type="", index_name="impact_factor_idx")
+            index_params.add_index(
+                field_name="author_ids", index_type="", index_name="author_ids_idx"
+            )
+            index_params.add_index(
+                field_name="corresponding_authors",
+                index_type="",
+                index_name="corresponding_authors_idx",
+            )
+            index_params.add_index(
+                field_name="corresponding_author_ids",
+                index_type="",
+                index_name="corresponding_author_ids_idx",
+            )
+            index_params.add_index(
+                field_name="impact_factor", index_type="", index_name="impact_factor_idx"
+            )
             index_params.add_index(field_name="pubdate", index_type="", index_name="pubdate_idx")
             self.client.create_collection(
                 collection,
@@ -117,12 +149,12 @@ class Milvus(BaseVectorDB):
     ):
         """
         Insert data into the vector database.
-        
+
         Args:
             collection: Collection name
             chunks: List of data chunks to insert
             batch_size: Batch size for insertion
-            
+
         Returns:
             Dictionary containing total insert count and list of inserted IDs
         """
@@ -130,15 +162,19 @@ class Milvus(BaseVectorDB):
             collection = self.default_collection
         embeddings = [chunk.embedding for chunk in chunks]
         texts = [chunk.text for chunk in chunks]
-        references_list = [chunk.metadata.get('title', '') for chunk in chunks]
-        reference_ids_list = [chunk.metadata.get('article_id', 0) for chunk in chunks]
-        keywords_list = [chunk.metadata.get('keywords', []) for chunk in chunks]
-        authors_list = [chunk.metadata.get('authors', []) for chunk in chunks]
-        author_ids_list = [chunk.metadata.get('author_ids', []) for chunk in chunks]
-        corresponding_authors_list = [chunk.metadata.get('corresponding_authors', []) for chunk in chunks]
-        corresponding_author_ids_list = [chunk.metadata.get('corresponding_author_ids', []) for chunk in chunks]
-        impact_factor_list = [chunk.metadata.get('impact_factor', 0) for chunk in chunks]
-        pubdate_list = [int(chunk.metadata.get('pubdate', 0)) for chunk in chunks]
+        references_list = [chunk.metadata.get("title", "") for chunk in chunks]
+        reference_ids_list = [chunk.metadata.get("article_id", 0) for chunk in chunks]
+        keywords_list = [chunk.metadata.get("keywords", []) for chunk in chunks]
+        authors_list = [chunk.metadata.get("authors", []) for chunk in chunks]
+        author_ids_list = [chunk.metadata.get("author_ids", []) for chunk in chunks]
+        corresponding_authors_list = [
+            chunk.metadata.get("corresponding_authors", []) for chunk in chunks
+        ]
+        corresponding_author_ids_list = [
+            chunk.metadata.get("corresponding_author_ids", []) for chunk in chunks
+        ]
+        impact_factor_list = [chunk.metadata.get("impact_factor", 0) for chunk in chunks]
+        pubdate_list = [int(chunk.metadata.get("pubdate", 0)) for chunk in chunks]
 
         datas = [
             {
@@ -154,21 +190,25 @@ class Milvus(BaseVectorDB):
                 "impact_factor": impact_factor,
                 "pubdate": pubdate,
             }
-            for embedding, text, reference, reference_id, keywords, authors, author_ids, \
-                corresponding_authors, corresponding_author_ids, impact_factor, pubdate in zip(
-                    embeddings, texts, references_list, reference_ids_list, keywords_list, 
-                    authors_list, author_ids_list, corresponding_authors_list, 
-                    corresponding_author_ids_list, impact_factor_list, pubdate_list
-                )
+            for embedding, text, reference, reference_id, keywords, authors, author_ids, corresponding_authors, corresponding_author_ids, impact_factor, pubdate in zip(
+                embeddings,
+                texts,
+                references_list,
+                reference_ids_list,
+                keywords_list,
+                authors_list,
+                author_ids_list,
+                corresponding_authors_list,
+                corresponding_author_ids_list,
+                impact_factor_list,
+                pubdate_list,
+            )
         ]
         batch_datas = [datas[i : i + batch_size] for i in range(0, len(datas), batch_size)]
-        
+
         # Initialize result summary
-        total_result = {
-            "insert_count": 0,
-            "ids": []
-        }
-        
+        total_result = {"insert_count": 0, "ids": []}
+
         try:
             for batch_data in batch_datas:
                 res = self.client.insert(collection_name=collection, data=batch_data)
@@ -195,13 +235,13 @@ class Milvus(BaseVectorDB):
     ) -> List[RetrievalResult]:
         """
         Search for most similar vectors in the database.
-        
+
         Args:
             collection: Collection name
             vector: Query vector
             top_k: Number of most similar results to return
             filter: Query filter expression in Milvus syntax
-            
+
         Returns:
             List of RetrievalResult objects containing search results
         """
@@ -213,7 +253,14 @@ class Milvus(BaseVectorDB):
                 data=[vector],
                 limit=top_k,
                 filter=filter,
-                output_fields=["embedding", "text", "reference", "reference_id", "pubdate", "impact_factor"],
+                output_fields=[
+                    "embedding",
+                    "text",
+                    "reference",
+                    "reference_id",
+                    "pubdate",
+                    "impact_factor",
+                ],
                 timeout=10,
             )
 
@@ -224,9 +271,10 @@ class Milvus(BaseVectorDB):
                     reference=b["entity"]["reference"],
                     score=b["distance"],
                     metadata={
-                        "reference_id": b["entity"]["reference_id"], 
-                        "pubdate": b["entity"]["pubdate"], 
-                        "impact_factor": b["entity"]["impact_factor"]},
+                        "reference_id": b["entity"]["reference_id"],
+                        "pubdate": b["entity"]["pubdate"],
+                        "impact_factor": b["entity"]["impact_factor"],
+                    },
                 )
                 for a in search_results
                 for b in a
@@ -238,7 +286,7 @@ class Milvus(BaseVectorDB):
     def list_collections(self, *args, **kwargs) -> List[CollectionInfo]:
         """
         List all collections in the database.
-        
+
         Returns:
             List of CollectionInfo objects containing collection details
         """
@@ -260,7 +308,7 @@ class Milvus(BaseVectorDB):
     def clear_db(self, collection: str = "deepsearcher", *args, **kwargs):
         """
         Clear the specified collection from the database.
-        
+
         Args:
             collection: Name of the collection to clear
         """

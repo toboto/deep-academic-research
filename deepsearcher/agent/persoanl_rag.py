@@ -8,20 +8,19 @@ publications and generating insights about their academic journey and contributi
 """
 
 import asyncio
-from typing import List, Tuple, Dict, Any, Optional
-from datetime import datetime, timedelta
 import re
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
-from deepsearcher.agent.base import RAGAgent, describe_class
 from deepsearcher.agent.academic_translator import AcademicTranslator
+from deepsearcher.agent.base import describe_class
+from deepsearcher.agent.overview_rag import OverviewRAG
 from deepsearcher.embedding.base import BaseEmbedding
 from deepsearcher.llm.base import BaseLLM
+from deepsearcher.rbase_db_loading import get_mysql_connection
 from deepsearcher.tools import log
 from deepsearcher.vector_db import RetrievalResult
 from deepsearcher.vector_db.base import BaseVectorDB, deduplicate_results
-from deepsearcher.agent.collection_router import CollectionRouter
-from deepsearcher.rbase_db_loading import get_mysql_connection
-from deepsearcher.agent.overview_rag import OverviewRAG
 
 # Author name extraction prompt
 AUTHOR_EXTRACT_PROMPT = """
@@ -390,17 +389,18 @@ CONCLUSION:
 [Your conclusion text here]
 """
 
+
 @describe_class(
     "This agent is designed to generate comprehensive academic reviews on specific researchers' work, analyzing their publications and generating insights about their academic journey."
 )
 class PersonalRAG(OverviewRAG):
     """
     PersonalRAG agent for generating comprehensive academic reviews on specific researchers.
-    
+
     This agent follows a structured approach to create well-organized research overviews
     by analyzing the researcher's publications and generating insights about their academic
     journey and contributions.
-    
+
     Unlike the general OverviewRAG which focuses on topic-based research reviews,
     PersonalRAG specifically analyzes an individual researcher's work, including:
     - Academic background and expertise (Academic Gene Map)
@@ -409,7 +409,7 @@ class PersonalRAG(OverviewRAG):
     - Citation impact and academic influence (Academic Influence Network)
     - Future research directions and potential (Future Potential Prediction)
     """
-    
+
     def __init__(
         self,
         llm: BaseLLM,
@@ -424,7 +424,7 @@ class PersonalRAG(OverviewRAG):
     ):
         """
         Initialize the PersonalRAG agent.
-        
+
         Args:
             llm: Base language model for general tasks
             reasoning_llm: Language model optimized for reasoning tasks
@@ -444,106 +444,107 @@ class PersonalRAG(OverviewRAG):
             vector_db=vector_db,
             route_collection=route_collection,
             rbase_settings=rbase_settings,
-            **kwargs
+            **kwargs,
         )
-        
+
         # Define the standard structure for personal research reviews
         self.sections = [
             "Academic Gene Map",
             "Research Evolution Path",
             "Core Contribution Cube",
             "Academic Influence Network",
-            "Future Potential Prediction"
+            "Future Potential Prediction",
         ]
-        
+
         # Section prompts mapping
         self.section_prompts = {
             "Academic Gene Map": ACADEMIC_GENE_PROMPT,
             "Research Evolution Path": RESEARCH_EVOLUTION_PROMPT,
             "Core Contribution Cube": CORE_CONTRIBUTIONS_PROMPT,
             "Academic Influence Network": ACADEMIC_INFLUENCE_PROMPT,
-            "Future Potential Prediction": FUTURE_POTENTIAL_PROMPT
+            "Future Potential Prediction": FUTURE_POTENTIAL_PROMPT,
         }
 
     def _extract_author_info(self, query: str) -> Dict[str, str]:
         """
         Extract author name and language from the query.
-        
+
         Args:
             query: Input query containing author name
-            
+
         Returns:
             Dictionary containing author name and language
         """
         prompt = AUTHOR_EXTRACT_PROMPT.format(query=query)
-        
+
         try:
             # 尝试通过LLM提取作者信息
             response = self.llm.chat([{"role": "user", "content": prompt}])
-            
+
             # 检查响应是否为空
             if not response or not response.content or response.content.strip() == "":
                 log.warning("Empty response from LLM when extracting author info")
                 return self._extract_fallback(query)
-                
+
             # 解析JSON
             import json
+
             content = response.content.strip()
-            
+
             # 处理可能的前缀和后缀
             if "```json" in content:
                 content = content.split("```json", 1)[1]
             if "```" in content:
                 content = content.split("```", 1)[0]
-                
+
             # 移除开头可能的非JSON内容
-            start_idx = content.find('{')
-            end_idx = content.rfind('}')
+            start_idx = content.find("{")
+            end_idx = content.rfind("}")
             if start_idx != -1 and end_idx != -1:
-                content = content[start_idx:end_idx+1]
+                content = content[start_idx : end_idx + 1]
             else:
                 log.warning("No valid JSON format found in LLM response")
                 return self._extract_fallback(query)
-            
+
             # 尝试解析JSON
             try:
                 author_info = json.loads(content)
-                
+
                 # 验证结果格式
                 if "name" not in author_info or "language" not in author_info:
                     log.warning("JSON parsed but missing required fields")
                     return self._extract_fallback(query)
-                    
+
                 # 验证值不为空
                 if not author_info["name"] or author_info["name"].strip() == "":
                     log.warning("Author name is empty in JSON response")
                     return self._extract_fallback(query)
-                    
+
                 return author_info
             except json.JSONDecodeError as je:
                 log.error(f"Failed to parse author info JSON: {je}")
                 return self._extract_fallback(query)
-                
+
         except Exception as e:
             log.error(f"Error in author extraction: {e}")
             return self._extract_fallback(query)
-            
+
     def _extract_fallback(self, query: str) -> Dict[str, str]:
         """
         回退方法，当JSON解析失败时使用规则提取作者
-        
+
         Args:
             query: 原始查询
-            
+
         Returns:
             包含作者信息的字典
         """
         log.warning("Using fallback author extraction")
-        
+
         # 从查询中提取最后一个名词短语作为作者名
         name = ""
         language = "en"
-        
+
         # 检查中文作者名模式（"关于XXX的"或"XXX教授的"等）
         if "关于" in query and "的" in query:
             parts = query.split("关于", 1)[1].split("的", 1)[0].strip()
@@ -570,21 +571,21 @@ class PersonalRAG(OverviewRAG):
                 if len(parts) > 0:
                     name = parts[-1]
                     # 检测是否为中文名（简单判断，不完美）
-                    if any('\u4e00' <= char <= '\u9fff' for char in name):
+                    if any("\u4e00" <= char <= "\u9fff" for char in name):
                         language = "zh"
                     else:
                         language = "en"
-                        
+
         log.info(f"Extracted author name: {name}, language: {language}")
         return {"name": name, "language": language}
 
     def _get_author_data(self, author_info: Dict[str, str]) -> Optional[int]:
         """
         Get author ID from database based on name and language.
-        
+
         Args:
             author_info: Dictionary containing author name and language
-            
+
         Returns:
             Author ID if found, None otherwise
         """
@@ -597,7 +598,7 @@ class PersonalRAG(OverviewRAG):
                 else:
                     query = "SELECT id, ename, cname FROM author WHERE cname = %s"
                     cursor.execute(query, (author_info["name"],))
-                
+
                 result = cursor.fetchone()
                 if result:
                     return result
@@ -609,10 +610,10 @@ class PersonalRAG(OverviewRAG):
     def _get_author_articles(self, author_id: int) -> List[Dict[str, Any]]:
         """
         Get author's articles from database.
-        
+
         Args:
             author_id: Author ID
-            
+
         Returns:
             List of article dictionaries
         """
@@ -630,7 +631,7 @@ class PersonalRAG(OverviewRAG):
                 """
                 cursor.execute(query, (author_id, self.max_articles))
                 articles = cursor.fetchall()
-                
+
                 # Get recent articles
                 recent_date = datetime.now() - timedelta(days=int(self.recent_months * 30.5))
                 recent_query = """
@@ -643,17 +644,17 @@ class PersonalRAG(OverviewRAG):
                 """
                 cursor.execute(recent_query, (author_id, recent_date, self.max_articles))
                 recent_articles = cursor.fetchall()
-                
+
                 # Merge and deduplicate articles
                 all_articles = []
                 seen_ids = set()
-                
+
                 # First add recent articles
                 for article in recent_articles:
                     if article["id"] not in seen_ids:
                         all_articles.append(article)
                         seen_ids.add(article["id"])
-                
+
                 # Then add other articles
                 for article in articles:
                     if len(all_articles) >= self.max_articles:
@@ -661,7 +662,7 @@ class PersonalRAG(OverviewRAG):
                     if article["id"] not in seen_ids:
                         all_articles.append(article)
                         seen_ids.add(article["id"])
-                
+
                 return all_articles
         except Exception as e:
             log.critical(f"Failed to get author articles: {e}")
@@ -670,130 +671,135 @@ class PersonalRAG(OverviewRAG):
     def _format_publications_for_prompt(self, articles: List[Dict[str, Any]]) -> str:
         """
         Format articles for inclusion in prompts.
-        
+
         Args:
             articles: List of article dictionaries
-            
+
         Returns:
             Formatted string of articles
         """
         formatted_articles = []
         for article in articles:
             formatted_article = f"""
-Article ID: {article['id']}
-Title: {article['title']}
-Journal: {article['journal_name']}
-Impact Factor: {article['impact_factor']}
-Publication Date: {article['pubdate']}
-Summary: {article['summary']}
+Article ID: {article["id"]}
+Title: {article["title"]}
+Journal: {article["journal_name"]}
+Impact Factor: {article["impact_factor"]}
+Publication Date: {article["pubdate"]}
+Summary: {article["summary"]}
 """
             formatted_articles.append(formatted_article)
         return "\n".join(formatted_articles)
 
-    def _generate_section_content(self, section: str, researcher_name: str, articles: List[Dict[str, Any]]) -> Tuple[str, int]:
+    def _generate_section_content(
+        self, section: str, researcher_name: str, articles: List[Dict[str, Any]]
+    ) -> Tuple[str, int]:
         """
         Generate content for a specific section.
-        
+
         Args:
             section: Section name
             researcher_name: Name of the researcher
             articles: List of article dictionaries
-            
+
         Returns:
             Tuple of (section content, tokens used)
         """
         if not articles:
             content = f"No relevant information found for section '{section}'."
             return content, 0
-            
+
         # Format publications for the prompt
         publications = self._format_publications_for_prompt(articles)
-        
+
         # Get the appropriate prompt for this section
         prompt_template = self.section_prompts.get(section, "")
         if not prompt_template:
             return f"No prompt template found for section '{section}'.", 0
-        
+
         # Generate section content
-        prompt = prompt_template.format(
-            researcher_name=researcher_name,
-            publications=publications
-        )
-        
+        prompt = prompt_template.format(researcher_name=researcher_name, publications=publications)
+
         log.color_print(f"<writing> Generating content for section '{section}'... </writing>\n")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
-        
+
         return response.content, response.total_tokens
-    
+
     def _generate_references(self, articles: List[Dict[str, Any]]) -> str:
         """
         Generate a formatted reference list from author's articles.
-        
+
         Args:
             articles: List of article dictionaries
-            
+
         Returns:
             Formatted reference list as a string
         """
         log.color_print("<optimizing> Generating references from articles... </optimizing>\n")
         references = []
-        
+
         for i, article in enumerate(articles):
             # Process publication year
             try:
-                year = article['pubdate'].year
-            except:
-                year = "n.d." # no date
-                
+                year = article["pubdate"].year
+            except Exception:
+                year = "n.d."  # no date
+
             # Generate reference entry
             try:
-                authors = article.get('authors', '').split(',')
+                authors = article.get("authors", "").split(",")
                 if len(authors) > 5:
-                    authors = authors[:5] + ['et al']
-                authors_str = ', '.join([a.strip() for a in authors if a.strip()])
+                    authors = authors[:5] + ["et al"]
+                authors_str = ", ".join([a.strip() for a in authors if a.strip()])
                 if not authors_str:
                     authors_str = "Author(s)"
-                    
+
                 reference = f"[{i + 1}] {authors_str}. ({year}). {article['title']}. {article['journal_name']}. DOI: {article['doi']}"
                 references.append(reference)
             except Exception as e:
-                log.error(f"Error formatting reference for article {article.get('id', 'unknown')}: {e}")
-                references.append(f"[{i + 1}] Reference information unavailable. Article ID: {article.get('id', 'unknown')}")
-                
+                log.error(
+                    f"Error formatting reference for article {article.get('id', 'unknown')}: {e}"
+                )
+                references.append(
+                    f"[{i + 1}] Reference information unavailable. Article ID: {article.get('id', 'unknown')}"
+                )
+
         return "\n\n".join(references)
-        
+
     def _format_chunk_texts(self, chunks: List[RetrievalResult]) -> str:
         """
         Format chunk texts for inclusion in prompts.
-        
+
         Args:
             chunk_texts: List of text chunks
-            
+
         Returns:
             Formatted string of chunk texts
         """
         chunk_str = ""
         for chunk in chunks:
-            chunk_str += f"""[{chunk.metadata['reference_id']}]\n{chunk.text}\n\n"""
+            chunk_str += f"""[{chunk.metadata["reference_id"]}]\n{chunk.text}\n\n"""
         return chunk_str
 
     def _get_debug_cache_key(self, author_id: int, section: str) -> str:
         """
         生成调试缓存的键值
-        
+
         Args:
             author_id: 作者ID
             section: 段落名称
-            
+
         Returns:
             缓存键值
         """
         return f"debug_cache_{author_id}_{section}"
 
-    def _save_debug_cache(self, author_id: int, section: str, content: str, title: str, tokens: int) -> None:
+    def _save_debug_cache(
+        self, author_id: int, section: str, content: str, title: str, tokens: int
+    ) -> None:
         """
         保存调试缓存
-        
+
         Args:
             author_id: 作者ID
             section: 段落名称
@@ -803,45 +809,45 @@ Summary: {article['summary']}
         """
         import json
         import os
-        
+
         cache_dir = "debug_cache"
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
-            
-        cache_file = os.path.join(cache_dir, f"{self._get_debug_cache_key(author_id, section)}.json")
-        
-        cache_data = {
-            "content": content,
-            "title": title,
-            "tokens": tokens
-        }
-        
-        with open(cache_file, 'w', encoding='utf-8') as f:
+
+        cache_file = os.path.join(
+            cache_dir, f"{self._get_debug_cache_key(author_id, section)}.json"
+        )
+
+        cache_data = {"content": content, "title": title, "tokens": tokens}
+
+        with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=2)
-            
+
         log.debug(f"Saved debug cache for section {section}")
 
     def _load_debug_cache(self, author_id: int, section: str) -> Optional[Tuple[str, str, int]]:
         """
         加载调试缓存
-        
+
         Args:
             author_id: 作者ID
             section: 段落名称
-            
+
         Returns:
             如果找到缓存，返回(内容, 标题, token数量)的元组，否则返回None
         """
         import json
         import os
-        
-        cache_file = os.path.join("debug_cache", f"{self._get_debug_cache_key(author_id, section)}.json")
-        
+
+        cache_file = os.path.join(
+            "debug_cache", f"{self._get_debug_cache_key(author_id, section)}.json"
+        )
+
         if not os.path.exists(cache_file):
             return None
-            
+
         try:
-            with open(cache_file, 'r', encoding='utf-8') as f:
+            with open(cache_file, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
                 log.debug(f"Loaded debug cache for section {section}")
                 return cache_data["content"], cache_data["title"], cache_data["tokens"]
@@ -849,13 +855,15 @@ Summary: {article['summary']}
             log.error(f"Error loading debug cache: {e}")
             return None
 
-    async def generate_overview(self, query: str, **kwargs) -> Tuple[Dict[str, str], Dict[str, str], int]:
+    async def generate_overview(
+        self, query: str, **kwargs
+    ) -> Tuple[Dict[str, str], Dict[str, str], int]:
         """
         Generate a comprehensive overview of the researcher's work.
-        
+
         Args:
             query: Query containing researcher's name
-            
+
         Returns:
             Tuple of (compiled English sections, Chinese translated sections, total tokens used)
         """
@@ -866,70 +874,80 @@ Summary: {article['summary']}
             raise ValueError("Could not extract author name from query")
 
         log.debug(f"Extracted author name: {author_info['name']}")
-            
+
         # Get author ID
         author = self._get_author_data(author_info)
         if not author:
             raise ValueError(f"No author found in database for name: {author_info['name']}")
-        
+
         author_translate_dict = None
-        if author_info.get("language", "") == "zh" and author['cname'] != None:
-            author_translate_dict = [{"source": author['cname'], "translation": author['ename']}]
+        if author_info.get("language", "") == "zh" and author["cname"] is not None:
+            author_translate_dict = [{"source": author["cname"], "translation": author["ename"]}]
 
         # Get author's articles
-        articles = self._get_author_articles(author['id'])
+        articles = self._get_author_articles(author["id"])
         if not articles:
             raise ValueError(f"No articles found for author: {author_info['name']}")
-        
+
         # Process each section
         english_sections = {}
         optimized_section_titles = {}
         total_tokens = 0
-        
+
         # 检查是否使用调试缓存
         use_debug_cache = kwargs.get("use_debug_cache", False)
-        
+
         for section in self.sections:
             # 如果使用调试缓存，尝试从缓存加载
             if self.verbose and use_debug_cache:
-                cache_result = self._load_debug_cache(author['id'], section)
+                cache_result = self._load_debug_cache(author["id"], section)
                 if cache_result:
                     content, title, tokens = cache_result
                     english_sections[section] = content
                     optimized_section_titles[section] = title
                     total_tokens += tokens
-                    log.color_print(f"<debug> Using cached content for section '{section}' </debug>\n")
+                    log.color_print(
+                        f"<debug> Using cached content for section '{section}' </debug>\n"
+                    )
                     continue
-            
+
             # Generate initial section content
             section_content, content_tokens = self._generate_section_content(
                 section, author["ename"], articles
             )
             total_tokens += content_tokens
-            
+
             # Generate questions for the section
             questions = self._generate_questions(section, section_content)
-            
+
             # Search for additional content based on questions
-            additional_results = await self._search_for_questions(questions, author['id'])
-            
+            additional_results = await self._search_for_questions(questions, author["id"])
+
             # Optimize section with additional findings
             optimized_title, optimized_content, optimize_tokens = self._optimize_section(
                 section, section_content, additional_results
             )
             total_tokens += optimize_tokens
-            
+
             english_sections[section] = optimized_content
             optimized_section_titles[section] = optimized_title
-            
+
             # Save debug cache
             if self.verbose:
-                self._save_debug_cache(author['id'], section, optimized_content, optimized_title, content_tokens + optimize_tokens)
+                self._save_debug_cache(
+                    author["id"],
+                    section,
+                    optimized_content,
+                    optimized_title,
+                    content_tokens + optimize_tokens,
+                )
 
         # Combine all sections into full text
         full_text = ""
         for section in self.sections:
-            full_text += f"## {optimized_section_titles[section]}\n\n{english_sections[section]}\n\n"
+            full_text += (
+                f"## {optimized_section_titles[section]}\n\n{english_sections[section]}\n\n"
+            )
 
         # Compile and refine the final review
         compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
@@ -940,18 +958,19 @@ Summary: {article['summary']}
             english_topic, compiled_text
         )
         total_tokens += abstract_tokens
-        
+
         # Reorganize references
         reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
-        
+
         # If no references found in text, generate from articles
         if not references_text:
             references_text = self._generate_references(articles)
-            
+
         total_tokens += ref_tokens
 
         # Parse sections from reorganized text
         import re
+
         compiled_sections = {}
         compiled_sections["Abstract"] = abstract
         section_pattern = r"## (.*?)\n\n(.*?)(?=\n\n## |$)"
@@ -959,30 +978,34 @@ Summary: {article['summary']}
             section_name = match.group(1).strip()
             section_content = match.group(2).strip()
             compiled_sections[section_name] = section_content
-        
+
         # Add abstract, conclusion and references
         compiled_sections["Conclusion"] = conclusion
         compiled_sections["References"] = references_text
-            
+
         # Translate each section to Chinese
         chinese_sections = {}
         for section, content in compiled_sections.items():
             section_title = self._translate_to_chinese(section, author_translate_dict)
             if section != "References":  # Don't translate references
-                log.color_print(f"<translating> Translating section '{section}' to Chinese... </translating>\n")
-                chinese_sections[section_title] = self._translate_to_chinese(content, author_translate_dict)
+                log.color_print(
+                    f"<translating> Translating section '{section}' to Chinese... </translating>\n"
+                )
+                chinese_sections[section_title] = self._translate_to_chinese(
+                    content, author_translate_dict
+                )
             else:
                 chinese_sections[section_title] = content
-            
+
         return compiled_sections, chinese_sections, total_tokens
-        
+
     def query(self, query: str, **kwargs) -> Tuple[str, List[RetrievalResult], int]:
         """
         Process a researcher query and generate a comprehensive overview.
-        
+
         Args:
             query: The researcher query
-            
+
         Returns:
             Tuple of (response text, retrieval results (empty list), tokens used)
         """
@@ -995,13 +1018,13 @@ Summary: {article['summary']}
         if kwargs.get("vector_db_collection"):
             self.vector_db_collection = kwargs.get("vector_db_collection")
             self.route_collection = False
-            
+
         try:
             # Generate overview
             english_sections, chinese_sections, total_tokens = asyncio.run(
                 self.generate_overview(query, **kwargs)
             )
-        
+
             # Format the response with both English and Chinese content
             self.english_response = f"# Research Overview: {query}\n\n"
             self.chinese_response = f"# 研究综述：{query}\n\n"
@@ -1013,14 +1036,14 @@ Summary: {article['summary']}
             for section in chinese_sections:
                 self.chinese_response += f"## {section}\n\n"
                 self.chinese_response += f"{chinese_sections[section]}\n\n"
-        
+
             return self.english_response, [], total_tokens
-            
+
         except Exception as e:
             error_message = f"Error generating research overview: {str(e)}"
             log.error(error_message)
             return error_message, [], 0
-        
+
     def retrieve(self, query: str, **kwargs) -> Tuple[List[RetrievalResult], int, dict]:
         """
         This method is required by the RAGAgent interface but not used directly.
@@ -1031,30 +1054,31 @@ Summary: {article['summary']}
     def _generate_questions(self, section_title: str, section_content: str) -> List[str]:
         """
         为指定部分生成具体的研究问题，以深化分析
-        
+
         Args:
             section_title: 部分标题
             section_content: 部分内容
-            
+
         Returns:
             问题列表
         """
-        log.color_print(f"<reasoning> Generating questions for section '{section_title}'... </reasoning>\n")
-        
-        prompt = QUESTION_GENERATION_PROMPT.format(
-            section_title=section_title,
-            section_content=section_content
+        log.color_print(
+            f"<reasoning> Generating questions for section '{section_title}'... </reasoning>\n"
         )
-        
+
+        prompt = QUESTION_GENERATION_PROMPT.format(
+            section_title=section_title, section_content=section_content
+        )
+
         try:
             response = self.reasoning_llm.chat([{"role": "user", "content": prompt}])
-            
+
             # 提取问题列表
-            questions = [q.strip() for q in response.content.strip().split('\n') if q.strip()]
-            
+            questions = [q.strip() for q in response.content.strip().split("\n") if q.strip()]
+
             # 确保不超过5个问题
             questions = questions[:5]
-            
+
             log.debug(f"Generated {len(questions)} questions for section '{section_title}'")
             return questions
         except Exception as e:
@@ -1065,29 +1089,35 @@ Summary: {article['summary']}
     async def _search_for_questions(self, questions: List[str], author_id: int) -> str:
         """
         为生成的问题搜索额外内容
-        
+
         Args:
             questions: 问题列表
             author_id: 作者ID
-            
+
         Returns:
             合并的搜索结果
         """
         if not questions:
             return ""
-            
-        log.color_print("<searching> Searching for additional content based on questions... </searching>\n")
-        
+
+        log.color_print(
+            "<searching> Searching for additional content based on questions... </searching>\n"
+        )
+
         consumed_tokens = 0
         if self.route_collection:
             # Use CollectionRouter to select appropriate collections
             selected_collections, n_token_route = self.collection_router.invoke(query=questions[0])
             consumed_tokens += n_token_route
-            log.color_print(f"<search> Collection router selected: {selected_collections} </search>\n")
+            log.color_print(
+                f"<search> Collection router selected: {selected_collections} </search>\n"
+            )
         else:
             # Use default collection
             selected_collections = [self.vector_db_collection]
-            log.color_print(f"<search> Using provided collection: {self.vector_db_collection} </search>\n")
+            log.color_print(
+                f"<search> Using provided collection: {self.vector_db_collection} </search>\n"
+            )
 
         all_results = []
         for question in questions:
@@ -1099,9 +1129,9 @@ Summary: {article['summary']}
                         collection=collection,
                         vector=query_vector,
                         filter=f"ARRAY_CONTAINS(author_ids, {author_id})",
-                        top_k=self.top_k_per_section
+                        top_k=self.top_k_per_section,
                     )
-                    
+
                     # 过滤并提取文本
                     for result in results:
                         if self._is_relevant(question, result.text):
@@ -1111,29 +1141,26 @@ Summary: {article['summary']}
                             all_results.append(result)
                 except Exception as e:
                     log.error(f"Error searching for question '{question}': {e}")
-                
+
         # 去重和合并搜索结果
         unique_results = deduplicate_results(all_results)
         formatted_results = self._format_chunk_texts(unique_results)
-        
+
         return formatted_results
-        
+
     def _is_relevant(self, query: str, chunk: str) -> bool:
         """
         判断检索的块是否与查询相关
-        
+
         Args:
             query: 查询文本
             chunk: 检索到的文本块
-            
+
         Returns:
             如果相关则返回True，否则返回False
         """
-        prompt = RERANK_PROMPT.format(
-            query=query,
-            retrieved_chunk=chunk
-        )
-        
+        prompt = RERANK_PROMPT.format(query=query, retrieved_chunk=chunk)
+
         try:
             response = self.llm.chat([{"role": "user", "content": prompt}])
             return "YES" in response.content.upper()
@@ -1141,47 +1168,53 @@ Summary: {article['summary']}
             log.error(f"Error in relevance check: {e}")
             return True  # 默认相关，以免错过内容
 
-    def _optimize_section(self, section_title: str, section_content: str, additional_findings: str) -> Tuple[str, str, int]:
+    def _optimize_section(
+        self, section_title: str, section_content: str, additional_findings: str
+    ) -> Tuple[str, str, int]:
         """
         基于额外发现优化部分内容
-        
+
         Args:
             section_title: 原始部分标题
             section_content: 原始部分内容
             additional_findings: 额外研究发现
-            
+
         Returns:
             优化后的标题、内容和使用的令牌数
         """
         if not additional_findings:
             return section_title, section_content, 0
-            
-        log.color_print(f"<optimizing> Optimizing section '{section_title}' with additional findings... </optimizing>\n")
-        
+
+        log.color_print(
+            f"<optimizing> Optimizing section '{section_title}' with additional findings... </optimizing>\n"
+        )
+
         prompt = SECTION_OPTIMIZATION_PROMPT.format(
             section_title=section_title,
             section_content=section_content,
-            additional_findings=additional_findings
+            additional_findings=additional_findings,
         )
-        
+
         try:
             response = self.writing_llm.chat([{"role": "user", "content": prompt}])
-            
+
             # 解析响应以获取标题和内容
             content = response.content.strip()
-            
+
             # 提取标题和内容
             title_match = re.search(r"TITLE:\s*(.*?)(?:\n|$)", content)
             content_match = re.search(r"CONTENT:(.*?)(?:$)", content, re.DOTALL)
-            
+
             optimized_title = title_match.group(1).strip() if title_match else section_title
             optimized_content = content_match.group(1).strip() if content_match else content
-            
+
             # 清理文本，如果没有匹配到内容部分
             if not content_match:
                 # 移除TITLE行，余下的作为内容
-                optimized_content = re.sub(r"TITLE:\s*(.*?)(?:\n|$)", "", content, flags=re.DOTALL).strip()
-            
+                optimized_content = re.sub(
+                    r"TITLE:\s*(.*?)(?:\n|$)", "", content, flags=re.DOTALL
+                ).strip()
+
             return optimized_title, optimized_content, response.total_tokens
         except Exception as e:
             log.error(f"Failed to optimize section: {e}")

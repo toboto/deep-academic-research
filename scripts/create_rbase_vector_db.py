@@ -7,16 +7,18 @@
 
 import logging
 import os
-from deepsearcher.rbase_db_loading import insert_to_vector_db, load_from_rbase_db
+
 from deepsearcher.configuration import Configuration, init_config
+from deepsearcher.rbase_db_loading import insert_to_vector_db, load_from_rbase_db
 
 # 抑制不必要的日志输出
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
 def main():
     """
     主函数：从Rbase数据库加载文章并存入向量数据库
-    
+
     流程:
     1. 初始化配置
     2. 从Rbase数据库加载文章数据
@@ -26,7 +28,7 @@ def main():
     # 获取当前脚本所在目录，并构建配置文件的路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
     yaml_file = os.path.join(current_dir, "..", "config.rbase.yaml")
-    
+
     # 从YAML文件加载配置
     config = Configuration(yaml_file)
 
@@ -41,23 +43,23 @@ def main():
     # 从Rbase数据库加载文章数据
     # offset和limit参数用于分页加载数据
     articles = load_from_rbase_db(config.rbase_settings, offset=0, limit=2000)
-    
+
     # 步骤3：将文章数据插入到向量数据库
     insert_result = insert_to_vector_db(
         rbase_config=config.rbase_settings,  # Rbase配置，包含数据库和OSS配置
-        articles=articles,                   # 要插入的文章列表
-        collection_name=collection_name,     # 向量数据库集合名称
+        articles=articles,  # 要插入的文章列表
+        collection_name=collection_name,  # 向量数据库集合名称
         collection_description=collection_description,  # 集合描述
-        force_new_collection=True            # 是否强制创建新集合（首次运行时设置为True，之后可设为False）
+        force_new_collection=True,  # 是否强制创建新集合（首次运行时设置为True，之后可设为False）
     )
-    
+
     # 打印插入结果统计
     if insert_result:
         # 打印成功插入的数据条数
         print(f"成功插入数据 {insert_result.get('insert_count', 0)} 条")
-        
+
         # 打印插入数据的ID范围
-        ids = insert_result.get('ids', [])
+        ids = insert_result.get("ids", [])
         if ids:
             min_id = min(ids)
             max_id = max(ids)
@@ -70,4 +72,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

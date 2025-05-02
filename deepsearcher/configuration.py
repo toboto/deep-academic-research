@@ -4,20 +4,22 @@ from typing import Literal
 import yaml
 
 from deepsearcher.agent import ChainOfRAG, DeepSearch, NaiveRAG
+from deepsearcher.agent.academic_translator import AcademicTranslator
+from deepsearcher.agent.overview_rag import OverviewRAG
 from deepsearcher.agent.rag_router import RAGRouter
 from deepsearcher.embedding.base import BaseEmbedding
 from deepsearcher.llm.base import BaseLLM
 from deepsearcher.loader.file_loader.base import BaseLoader
 from deepsearcher.loader.web_crawler.base import BaseCrawler
-from deepsearcher.vector_db.base import BaseVectorDB
-from deepsearcher.agent.overview_rag import OverviewRAG
-from deepsearcher.agent.academic_translator import AcademicTranslator
 from deepsearcher.tools import log
+from deepsearcher.vector_db.base import BaseVectorDB
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_YAML_PATH = os.path.join(current_dir, "..", "config.yaml")
 
-FeatureType = Literal["llm", "embedding", "file_loader", "web_crawler", "vector_db", "reasoning_llm", "writing_llm"]
+FeatureType = Literal[
+    "llm", "embedding", "file_loader", "web_crawler", "vector_db", "reasoning_llm", "writing_llm"
+]
 
 
 class Configuration:
@@ -75,10 +77,10 @@ class ModuleFactory:
 
     def create_llm(self) -> BaseLLM:
         return self._create_module_instance("llm", "deepsearcher.llm")
-        
+
     def create_reasoning_llm(self) -> BaseLLM:
         return self._create_module_instance("reasoning_llm", "deepsearcher.llm")
-        
+
     def create_writing_llm(self) -> BaseLLM:
         return self._create_module_instance("writing_llm", "deepsearcher.llm")
 
@@ -127,29 +129,29 @@ def init_config(config: Configuration):
         overview_rag
     module_factory = ModuleFactory(config)
     llm = module_factory.create_llm()
-    
+
     # Initialize reasoning and writing models if they are configured
     log.debug("initializing reasoning_llm")
     if "reasoning_llm" in config.provide_settings:
         reasoning_llm = module_factory.create_reasoning_llm()
     else:
         reasoning_llm = llm  # Fallback to the default LLM if not configured
-        
+
     log.debug("initializing writing_llm")
     if "writing_llm" in config.provide_settings:
         writing_llm = module_factory.create_writing_llm()
     else:
         writing_llm = llm  # Fallback to the default LLM if not configured
-        
+
     log.debug("initializing embedding_model")
     embedding_model = module_factory.create_embedding()
-    
+
     log.debug("initializing file_loader")
     file_loader = module_factory.create_file_loader()
-    
+
     log.debug("initializing web_crawler")
     web_crawler = module_factory.create_web_crawler()
-    
+
     log.debug("initializing vector_db")
     vector_db = module_factory.create_vector_db()
 
@@ -199,10 +201,12 @@ def init_config(config: Configuration):
             translator=academic_translator,
             embedding_model=embedding_model,
             vector_db=vector_db,
-            text_window_splitter=config.rbase_settings.get("overview_rag", {}).get("text_window_splitter", True),
-            rbase_settings=config.rbase_settings
+            text_window_splitter=config.rbase_settings.get("overview_rag", {}).get(
+                "text_window_splitter", True
+            ),
+            rbase_settings=config.rbase_settings,
         )
-        
+
         log.info("OverviewRAG initialized successfully")
     except Exception as e:
         log.critical(f"Failed to initialize OverviewRAG: {e}")

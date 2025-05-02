@@ -6,18 +6,18 @@
 """
 
 import logging
-from deepsearcher.offline_loading import load_from_local_files  # 用于从本地文件加载数据
-from deepsearcher.online_query import query  # 用于执行在线查询
-from deepsearcher.configuration import Configuration, init_config  # 配置管理工具
+
 from deepsearcher import configuration  # 全局配置访问
+from deepsearcher.configuration import Configuration, init_config  # 配置管理工具
 
 # 抑制第三方库的不必要日志输出
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
 def main():
     """
     主函数：初始化并配置向量数据库
-    
+
     流程:
     1. 创建并配置系统设置
     2. 初始化向量数据库连接
@@ -44,10 +44,10 @@ def main():
 
         # 处理集合名称，替换空格和连字符为下划线，确保名称符合Milvus要求
         collection_name = collection_name.replace(" ", "_").replace("-", "_")
-        
+
         # 获取嵌入模型，用于确定向量维度
         embedding_model = configuration.embedding_model
-        
+
         # 初始化集合，设置向量维度和其他参数
         vector_db.init_collection(
             dim=embedding_model.dimension,  # 向量维度，由嵌入模型决定
