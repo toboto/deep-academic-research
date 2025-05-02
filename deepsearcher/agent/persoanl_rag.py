@@ -22,7 +22,6 @@ from deepsearcher.vector_db.base import BaseVectorDB, deduplicate_results
 from deepsearcher.agent.collection_router import CollectionRouter
 from deepsearcher.rbase_db_loading import get_mysql_connection
 from deepsearcher.agent.overview_rag import OverviewRAG
-from tqdm import tqdm
 
 # Author name extraction prompt
 AUTHOR_EXTRACT_PROMPT = """
@@ -47,7 +46,8 @@ Return only the JSON object without any explanations.
 # Section content generation prompts
 ACADEMIC_GENE_PROMPT = """
 You are an expert academic researcher analyzing a researcher's academic background and expertise.
-Based on the provided publications data, write a comprehensive section about the researcher's academic gene map.
+Based on the provided publications data, construct a rigorous analysis of the researcher's academic genealogy. 
+This section should demonstrate how their intellectual identity emerges from both their research history and scholarly choices.
 
 Researcher: {researcher_name}
 Publications:
@@ -70,7 +70,7 @@ Your response should be a polished section ready for inclusion in the final revi
 
 RESEARCH_EVOLUTION_PROMPT = """
 You are an expert academic researcher analyzing a researcher's academic evolution.
-Based on the provided publication data, write a comprehensive section about the researcher's research evolution path.
+Based on the provided publications data, write a comprehensive section about the researcher's research evolution path.
 
 Researcher: {researcher_name}
 Publications:
@@ -93,7 +93,8 @@ Your response should be a polished section ready for inclusion in the final revi
 
 CORE_CONTRIBUTIONS_PROMPT = """
 You are an expert academic researcher analyzing a researcher's core contributions.
-Based on the provided publication data, write a comprehensive section about the researcher's core contribution cube.
+Based on the provided publications data, write a comprehensive section about the researcher's 
+core contribution cube, which needs to dissect their legacy using the T-M-A (Theoretical-Methodological-Applied) cuboid model.
 
 Researcher: {researcher_name}
 Publications:
@@ -115,8 +116,10 @@ Your response should be a polished section ready for inclusion in the final revi
 """
 
 ACADEMIC_INFLUENCE_PROMPT = """
-You are an expert academic researcher analyzing a researcher's academic influence.
-Based on the provided publication data, write a comprehensive section about the researcher's academic influence network.
+You are an expert academic researcher specializing in reconstructing multidimensional research impact for the given researcher.
+Based on the provided publications data, write a comprehensive section about the researcher's academic influence network.
+The academic influence can be consisted of impact on methodological foundation, theoretical key development, 
+and cross domain discoveries.
 
 Researcher: {researcher_name}
 Publications:
@@ -861,6 +864,8 @@ Summary: {article['summary']}
         author_info = self._extract_author_info(query)
         if not author_info["name"]:
             raise ValueError("Could not extract author name from query")
+
+        log.debug(f"Extracted author name: {author_info['name']}")
             
         # Get author ID
         author = self._get_author_data(author_info)

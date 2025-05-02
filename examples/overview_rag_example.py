@@ -22,7 +22,10 @@ from deepsearcher.tools import log
 from deepsearcher.configuration import Configuration, init_config
 from deepsearcher import configuration
 
-def main(query: str, output_file: str, verbose: bool = False):
+def main(query: str, output_file: str, verbose: bool = False, 
+         vector_db_collection: str = "dev_rag_articles", 
+         top_k_per_section: int = 80, 
+         top_k_accepted_results: int = 80):
     """
     使用OverviewRAG生成科研综述的主函数
     
@@ -49,9 +52,9 @@ def main(query: str, output_file: str, verbose: bool = False):
     # 调用OverviewRAG生成综述
     from deepsearcher.configuration import overview_rag
     response, _, tokens_used = overview_rag.query(query, 
-        verbose=verbose, top_k_per_section=80, top_k_accepted_results=80, 
+        verbose=verbose, top_k_per_section=top_k_per_section, top_k_accepted_results=top_k_accepted_results, 
         route_collection=False,
-        vector_db_collection="academic_articles")
+        vector_db_collection=vector_db_collection)
     
     # 计算处理时间
     end_time = time.time()
@@ -78,6 +81,12 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     parser.add_argument('--query', '-q', help='Query for overview article')
     parser.add_argument('--output', '-o', help='Output file path')
+    parser.add_argument('--vector_db_collection', '-vdc', default='dev_rag_articles', 
+                        help='Vector database collection name')
+    parser.add_argument('--top_k_per_section', '-tkps', default=80, 
+                        help='Top k per section')
+    parser.add_argument('--top_k_accepted_results', '-tkar', default=80, 
+                        help='Top k accepted results')
     args = parser.parse_args()
     
     if args.verbose:
