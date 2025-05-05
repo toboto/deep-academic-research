@@ -1,11 +1,11 @@
+import re
+import tempfile
 from typing import List, Tuple
+from tqdm import tqdm
 
 from deepsearcher import configuration
 from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
-
-# Global variable to store active database connection
-_active_connection = None
-
+from deepsearcher.db.mysql_connection import get_mysql_connection, close_mysql_connection
 
 def init_vector_db(
     collection_name: str, collection_description: str, force_new_collection: bool = False
@@ -96,3 +96,277 @@ def _process_authors(
             article.set_author(author_obj)
 
         return all_authors, author_ids, corresponding_author_list, corresponding_author_ids
+
+
+def _process_keywords(article: RbaseArticle, bypass_rbase_db: bool = False) -> List[str]:
+    """
+    Process article keywords information, either retrieving from database or using keywords directly from article object.
+    
+    Args:
+        article: RbaseArticle object containing article information
+        bypass_rbase_db: Whether to bypass Rbase database and use keywords directly from article object, defaults to False
+        
+    Returns:
+        List[str]: Deduplicated list of keywords
+    """
+
+    if not bypass_rbase_db:
+        # Ensure parameters are not None
+        source_keywords = article.source_keywords or ""
+        mesh_keywords = article.mesh_keywords or ""
+        
+        # Split keywords by semicolon and remove whitespace
+        source_keywords_list = [kw.strip() for kw in source_keywords.split(';') if kw.strip()]
+        mesh_keywords_list = [kw.strip() for kw in mesh_keywords.split(';') if kw.strip()]
+        
+        # Merge keyword lists and remove duplicates
+        keywords_set = set(source_keywords_list + mesh_keywords_list)
+        keywords_list = list(keywords_set)
+    else:
+        keywords_list = article.keywords
+    
+    return keywords_list
+
+
+def _download_file_content(url: str) -> str:
+    """
+    Download file content from URL
+    
+    Args:
+        url: File URL
+        
+    Returns:
+        File content
+    
+    Raises:
+        Exception: If download fails
+    """
+    import requests
+    import urllib3
+    
+    # Disable SSL verification to resolve SSL connection issues
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    response = requests.get(url, verify=False)
+    response.raise_for_status()  # Ensure request was successful
+    
+    return response.text
+
+
+def insert_to_vector_db(rbase_config: dict, 
+                       articles: list[RbaseArticle],
+                       collection_name: str = None,
+                       collection_description: str = None,
+                       force_new_collection: bool = False,
+                       chunk_size: int = 1500,
+                       chunk_overlap: int = 100,
+                       batch_size: int = 256,
+                       bypass_rbase_db: bool = False,
+                       save_downloaded_file: bool = False):
+    """
+    Load article data into vector database
+    
+    Args:
+        rbase_config: Configuration dictionary containing OSS and database configurations
+        articles: List of RbaseArticle objects containing article data to process
+        collection_name: Vector database collection name
+        collection_description: Vector database collection description
+        force_new_collection: Whether to force create a new collection
+        chunk_size: Text chunk size
+        chunk_overlap: Text chunk overlap size
+        batch_size: Batch processing size
+    """
+    # Check OSS configuration
+    rbase_oss_config = rbase_config.get('oss', {})
+    
+    # Ensure OSS host address is not empty
+    if not rbase_oss_config.get('host'):
+        raise ValueError("OSS host address cannot be empty")
+    
+    # Check database configuration
+    rbase_db_config = rbase_config.get('database', {})
+    
+    # Initialize vector database
+    vector_db = configuration.vector_db
+    embedding_model = configuration.embedding_model
+    file_loader = configuration.file_loader
+    
+    if collection_name is None:
+        collection_name = vector_db.default_collection
+    collection_name = collection_name.replace(" ", "_").replace("-", "_")
+    
+    # Initialize vector database collection
+    init_vector_db(collection_name, collection_description, force_new_collection)
+    
+    # Get MySQL connection
+    conn = get_mysql_connection(rbase_db_config)
+    
+    all_docs = []
+    
+    try:
+        with conn.cursor() as cursor:
+            # Process each article
+            for article in tqdm(articles, desc="Processing article files"):
+                txt_file_path = article.txt_file
+                
+                # Additional check if txt_file_path is empty or not ending with .md
+                if not txt_file_path or not txt_file_path.endswith('.md'):
+                    warning(f"Skipping invalid file path: {txt_file_path}")
+                    continue
+                
+                # Process author information
+                _process_authors(cursor, article, bypass_rbase_db)
+                
+                # Process keywords
+                keywords_list = _process_keywords(article, bypass_rbase_db) 
+                
+                # Create temporary file to save markdown content
+                with tempfile.NamedTemporaryFile(suffix='.md', delete=False) as temp_file:
+                    temp_path = temp_file.name
+                    
+                    # Download file content from OSS server to temporary file
+                    # Ensure both host and txt_file_path are not empty
+                    host = rbase_oss_config.get('host', '')
+                    if not host or not txt_file_path:
+                        warning(f"Skipping download: OSS host address or file path is empty - host: {host}, path: {txt_file_path}")
+                        continue
+                        
+                    full_url = host + txt_file_path
+                    
+                    try:
+                        content = _download_file_content(full_url)
+                        
+                        # Remove content after "# REFERENCES" (case-insensitive)
+                        references_pattern = re.compile(r'#\s*references.*$', re.IGNORECASE | re.DOTALL)
+                        content = re.sub(references_pattern, '', content)
+                        
+                        temp_file.write(content.encode('utf-8'))
+                        
+                        # 在database/markdown/目录下存储备份文件
+                        if save_downloaded_file:
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            backup_dir = os.path.join(current_dir, '..', 'database', 'markdown')
+                            os.makedirs(backup_dir, exist_ok=True)
+                            backup_filename = os.path.basename(txt_file_path)
+                            backup_path = os.path.join(backup_dir, backup_filename)
+                            with open(backup_path, 'w', encoding='utf-8') as backup_file:
+                                backup_file.write(content)
+                    except Exception as e:
+                        error(f"Failed to download file: {e}, URL: {full_url}")
+                        continue
+                
+                # Load temporary file
+                docs = file_loader.load_file(temp_path)
+                
+                # Add metadata to each document
+                for doc in docs:
+                    # Get author information
+                    if not bypass_rbase_db:
+                        author_names = [author.name for author in article.author_objects]
+                        author_ids = []
+                        corresponding_author_names = []
+                        corresponding_author_ids = []
+                        
+                        for author in article.author_objects:
+                            if hasattr(author, 'author_ids'):
+                                author_ids.extend(author.author_ids)
+                                if author.is_corresponding:
+                                    corresponding_author_names.append(author.name)
+                                    corresponding_author_ids.extend(author.author_ids)
+                    else:
+                        author_names = list(set(article.authors + article.corresponding_authors))
+                        author_ids = list(set(article.author_ids + article.corresponding_author_ids))
+                        corresponding_author_names = article.corresponding_authors
+                        corresponding_author_ids = article.corresponding_author_ids
+                    
+                    author_names = author_names[:200] if len(author_names) > 200 else author_names
+                    author_ids = author_ids[:500] if len(author_ids) > 500 else author_ids
+                    corresponding_author_names = corresponding_author_names[:40] if len(corresponding_author_names) > 40 else corresponding_author_names
+                    corresponding_author_ids = corresponding_author_ids[:100] if len(corresponding_author_ids) > 100 else corresponding_author_ids
+
+                    doc.metadata.update({
+                        'title': article.title,
+                        'authors': author_names,
+                        'author_ids': author_ids,
+                        'corresponding_authors': corresponding_author_names,
+                        'corresponding_author_ids': corresponding_author_ids,
+                        'keywords': keywords_list,
+                        'pubdate': article.pubdate,
+                        'article_id': article.article_id,
+                        'impact_factor': article.impact_factor,
+                        'reference': f"Article ID: {article.article_id}"
+                    })
+                
+                all_docs.extend(docs)
+                
+                # Delete temporary file
+                os.unlink(temp_path)
+            
+            # Split documents into chunks
+            chunks = split_docs_to_chunks(
+                all_docs,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+            
+            # Embed vectors
+            chunks = embedding_model.embed_chunks(chunks, batch_size=batch_size)
+            
+            # Insert into vector database
+            return vector_db.insert_data(collection=collection_name, chunks=chunks)
+            
+    except Exception as e:
+        # Close connection when exception occurs
+        close_mysql_connection()
+        raise Exception(f"Failed to process article data: {e}")
+
+
+def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    """
+    Load article data from Rbase database to vector database
+    
+    Args:
+        rbase_config: Database configuration dictionary
+        offset: Query start position
+        limit: Query limit count
+        
+    Returns:
+        List of RbaseArticle objects
+    """
+    # Get MySQL connection
+    rbase_db_config = rbase_config.get('database', {})
+    conn = get_mysql_connection(rbase_db_config)
+    
+    pdf_files = []
+    try:
+        with conn.cursor() as cursor:
+            # Query data from article_pdf_file table that meets the conditions, and ensure raw_article_id exists in article table
+            # Also ensure txt_file is not empty and ends with .md
+            # sql = """
+            # SELECT apf.id, apf.raw_article_id, apf.txt_file, 
+            #        a.title, a.authors, a.corresponding_authors,
+            #        a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate
+            # FROM article_pdf_file apf
+            # INNER JOIN article a ON apf.raw_article_id = a.id
+            # WHERE apf.user_id = 0 AND apf.status = 1 
+            # AND apf.txt_file IS NOT NULL 
+            # AND apf.txt_file LIKE '%%.md'
+            # ORDER BY apf.modified DESC LIMIT %s OFFSET %s
+            # """
+            sql = """
+            SELECT a.id, a.raw_article_id, a.txt_file, 
+                   a.title, a.authors, a.corresponding_authors,
+                   a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate,
+                   a.summary as abstract, a.journal_name
+            FROM article a
+            WHERE a.txt_file IS NOT NULL AND a.txt_file LIKE '%%.md' AND a.base_id=1
+            ORDER BY a.modified DESC LIMIT %s OFFSET %s
+            """
+            # Use parameterized query to avoid string formatting issues
+            cursor.execute(sql, (limit, offset))
+            pdf_files = cursor.fetchall()
+    except Exception as e:
+        # Close connection when exception occurs
+        close_mysql_connection()
+        raise Exception(f"Failed to process database data: {e}")
+    
+    return [RbaseArticle(pdf) for pdf in pdf_files]
