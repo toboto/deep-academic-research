@@ -1,13 +1,15 @@
 import ast
 import re
 from abc import ABC
-from typing import Dict, List
+from typing import Dict, List, Generator
 
 
 class ChatResponse(ABC):
-    def __init__(self, content: str, total_tokens: int) -> None:
+    def __init__(self, content: str, total_tokens: int, **kwargs) -> None:
         self.content = content
         self.total_tokens = total_tokens
+        self.prompt_tokens = kwargs.get("prompt_tokens", 0)
+        self.completion_tokens = kwargs.get("completion_tokens", 0)
 
     def __repr__(self) -> str:
         return f"ChatResponse(content={self.content}, total_tokens={self.total_tokens})"
@@ -18,6 +20,9 @@ class BaseLLM(ABC):
         pass
 
     def chat(self, messages: List[Dict]) -> ChatResponse:
+        pass
+
+    def stream_generator(self, messages: List[Dict]) -> Generator[object, None, None]:
         pass
 
     @staticmethod

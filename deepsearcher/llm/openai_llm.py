@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Callable, Generator
 
 from deepsearcher.llm.base import BaseLLM, ChatResponse
 from deepsearcher.tools import log
@@ -40,6 +40,25 @@ class OpenAI(BaseLLM):
                 total_tokens=completion.usage.total_tokens,
             )
 
+    def stream_generator(self, messages: List[Dict]) -> Generator[object, None, None]:
+        """
+        使用流式模式调用API，直接返回原始的chunk对象
+
+        Args:
+            messages: 消息列表
+
+        Returns:
+            流式响应对象
+        """
+        # 创建流式请求
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+
     def _stream_chat(self, messages: List[Dict]) -> ChatResponse:
         """
         使用流式模式调用API
@@ -50,56 +69,41 @@ class OpenAI(BaseLLM):
         Returns:
             聊天响应对象
         """
-        # 创建流式请求
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            stream=True,
-        )
-
         # 收集完整响应
         collected_content = ""
         reasoning_content = ""  # 收集推理内容
         total_tokens = 0
+        prompt_tokens = 0
+        completion_tokens = 0
         is_answering = False  # 标记是否已经从推理过程转为回答过程
 
-        # 处理流式响应
-        for chunk in stream:
-            # 如果chunk.choices为空，可能包含usage信息
-            if not chunk.choices:
-                if hasattr(chunk, "usage") and chunk.usage:
-                    total_tokens = chunk.usage.total_tokens
-                continue
-
-            delta = chunk.choices[0].delta
-
-            # 处理推理内容（特别是QwQ模型）
-            if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
-                reasoning_chunk = delta.reasoning_content
-                reasoning_content += reasoning_chunk
-                if self.verbose:
-                    print(".", end="")
-            # 处理回答内容
-            elif hasattr(delta, "content") and delta.content is not None:
-                # 标记开始回答
-                if delta.content != "" and not is_answering:
-                    is_answering = True
+        # 使用stream_generator处理流式响应
+        for chunk in self.stream_generator(messages):
+            if len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                # 处理推理内容（特别是QwQ模型）
+                if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
+                    reasoning_content += delta.reasoning_content
                     if self.verbose:
-                        print("\n")
-                        log.debug("--- 开始回答 ---")
+                        print(".", end="")
+                # 处理回答内容
+                elif hasattr(delta, "content") and delta.content is not None:
+                    # 标记开始回答
+                    if delta.content != "" and not is_answering:
+                        is_answering = True
+                        if self.verbose:
+                            print("\n")
+                            log.debug("--- 开始回答 ---")
 
-                content_chunk = delta.content
-                collected_content += content_chunk
-                if self.verbose:
-                    print(".", end="")
+                    collected_content += delta.content
+                    if self.verbose:
+                        print(".", end="")
 
             # 如果有token信息，累加
             if hasattr(chunk, "usage") and chunk.usage:
-                total_tokens = chunk.usage.total_tokens
-
-        # 如果没有获取到token信息，可以估算
-        if total_tokens == 0:
-            total_tokens = (len(collected_content) + len(reasoning_content)) // 2
+                total_tokens += chunk.usage.total_tokens
+                prompt_tokens += chunk.usage.prompt_tokens
+                completion_tokens += chunk.usage.completion_tokens
 
         # 最终的回答内容
         final_content = collected_content
@@ -115,4 +119,6 @@ class OpenAI(BaseLLM):
         return ChatResponse(
             content=final_content,
             total_tokens=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
