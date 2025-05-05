@@ -53,6 +53,9 @@ class RbaseArticle:
         else:
             self.pubdate = 0
         self.author_objects = []
+        self.abstract = kwargs.get("abstract") or article_data.get("abstract", "")
+        self.summary = kwargs.get("summary") or article_data.get("summary", self.abstract)
+        self.journal_name = kwargs.get("journal_name") or article_data.get("journal_name", "")
 
     def set_author(self, author: RbaseAuthor):
         self.author_objects.append(author)
