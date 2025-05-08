@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from deepsearcher import configuration
 from deepsearcher.configuration import Configuration, init_config
 from deepsearcher.api.routes import router
+from deepsearcher.tools.log import set_dev_mode, set_level
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -63,9 +64,9 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Rbase API",
+    title="Rbase Deep Searcher API",
     description="API for Rbase academic research platform",
-    version="1.0.0",
+    version="0.0.1",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -81,7 +82,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(router, prefix="/api/v1")
+app.include_router(router, prefix="/api")
 
 @app.get("/")
 async def root():
@@ -89,9 +90,9 @@ async def root():
     根路径处理函数，返回API基本信息
     """
     return {
-        "name": "Rbase API",
-        "version": "0.1.0",
-        "description": "Rbase API服务，提供AI概述和推荐问题功能",
+        "name": "Rbase Deep Searcher API",
+        "version": "0.0.1",
+        "description": "Rbase Deep Searcher API服务，提供AI概述和推荐问题功能",
     }
 
 @app.get("/health")
@@ -115,11 +116,11 @@ def get_server_config(config_path: str = "config.rbase.yaml"):
             os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
                 "..",
-                "config.rbase.yaml"
+                config_path
             )
         ))
-        init_config(configuration.config)
-        if configuration.config.is_initialized:
+        if init_config(configuration.config):
+            configuration.config.is_initialized = True
             config_loaded = True
         rbase_settings = configuration.config.rbase_settings
         api_settings = rbase_settings.get('api', {})
@@ -140,9 +141,6 @@ if __name__ == "__main__":
     host, port = get_server_config(args.config)
     logger.info(f"Starting server at {host}:{port}")
 
-    # 配置uvicorn日志
-    import uvicorn
-    
     # 读取日志文件配置
     rbase_settings = configuration.config.rbase_settings
     api_settings = rbase_settings.get('api', {})
@@ -153,6 +151,7 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
     
     # 配置uvicorn的日志
+    import uvicorn
     log_config = uvicorn.config.LOGGING_CONFIG
     
     # 统一日志格式
@@ -163,7 +162,16 @@ if __name__ == "__main__":
     # 添加文件处理器到所有日志配置
     for logger_name in log_config["loggers"]:
         logger_conf = log_config["loggers"][logger_name]
-        logger_conf["handlers"] = ["default", "file"]
+        if args.verbose:
+            set_dev_mode(True)
+            set_level(logging.DEBUG)
+            logger_conf["level"] = "DEBUG"
+            logger_conf["handlers"] = ["default", "file"]
+        else:
+            set_dev_mode(False)
+            set_level(logging.INFO)
+            logger_conf["level"] = "INFO"
+            logger_conf["handlers"] = ["file"]
     
     # 定义文件处理器
     log_config["handlers"]["file"] = {

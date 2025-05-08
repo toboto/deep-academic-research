@@ -71,6 +71,9 @@ class ModuleFactory:
         # e.g.
         # feature = "file_loader"
         # module_name = "deepsearcher.loader.file_loader"
+        on_demand = self.config.provide_settings[feature].get("on_demand_initialize", False)
+        if on_demand:
+            return None
         class_name = self.config.provide_settings[feature]["provider"]
         module = __import__(module_name, fromlist=[class_name])
         class_ = getattr(module, class_name)
@@ -113,9 +116,9 @@ naive_rag: NaiveRAG = None
 academic_translator: AcademicTranslator = None
 
 
-def init_config(config: Configuration):
+def init_config(config: Configuration) -> bool:
     if config.is_initialized:
-        return
+        return False
 
     global \
         module_factory, \
@@ -157,40 +160,42 @@ def init_config(config: Configuration):
     log.debug("initializing vector_db")
     vector_db = module_factory.create_vector_db()
 
-    log.debug("initializing default_searcher")
-    default_searcher = RAGRouter(
-        llm=llm,
-        rag_agents=[
-            DeepSearch(
-                llm=llm,
-                embedding_model=embedding_model,
-                vector_db=vector_db,
-                max_iter=config.query_settings["max_iter"],
-                route_collection=True,
-                text_window_splitter=True,
-            ),
-            ChainOfRAG(
-                llm=llm,
-                embedding_model=embedding_model,
-                vector_db=vector_db,
-                max_iter=config.query_settings["max_iter"],
-                route_collection=True,
-                text_window_splitter=True,
-            ),
-        ],
-    )
-    naive_rag = NaiveRAG(
-        llm=llm,
-        embedding_model=embedding_model,
-        vector_db=vector_db,
-        top_k=10,
-        route_collection=True,
-        text_window_splitter=True,
-    )
+    if embedding_model and vector_db:
+        log.debug("initializing default_searcher")
+        default_searcher = RAGRouter(
+            llm=llm,
+            rag_agents=[
+                DeepSearch(
+                    llm=llm,
+                    embedding_model=embedding_model,
+                    vector_db=vector_db,
+                    max_iter=config.query_settings["max_iter"],
+                    route_collection=True,
+                    text_window_splitter=True,
+                ),
+                ChainOfRAG(
+                    llm=llm,
+                    embedding_model=embedding_model,
+                    vector_db=vector_db,
+                    max_iter=config.query_settings["max_iter"],
+                    route_collection=True,
+                    text_window_splitter=True,
+                ),
+            ],
+        )
+        naive_rag = NaiveRAG(
+            llm=llm,
+            embedding_model=embedding_model,
+            vector_db=vector_db,
+            top_k=10,
+            route_collection=True,
+            text_window_splitter=True,
+        )
 
     log.debug("initializing academic_translator")
     # Initialize AcademicTranslator
     academic_translator = AcademicTranslator(llm=llm, rbase_settings=config.rbase_settings)
 
-    config.is_initialized = True
     log.debug("initialization finished")
+    config.is_initialized = True
+    return True
