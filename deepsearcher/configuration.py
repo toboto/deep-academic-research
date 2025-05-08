@@ -30,6 +30,7 @@ class Configuration:
         self.query_settings = config_data["query_settings"]
         self.load_settings = config_data["load_settings"]
         self.rbase_settings = config_data.get("rbase_settings", {})
+        self.is_initialized = False
 
     def load_config_from_yaml(self, config_path: str):
         with open(config_path, "r") as file:
@@ -110,10 +111,12 @@ web_crawler: BaseCrawler = None
 default_searcher: RAGRouter = None
 naive_rag: NaiveRAG = None
 academic_translator: AcademicTranslator = None
-overview_rag: OverviewRAG = None
 
 
 def init_config(config: Configuration):
+    if config.is_initialized:
+        return
+
     global \
         module_factory, \
         llm, \
@@ -125,8 +128,7 @@ def init_config(config: Configuration):
         web_crawler, \
         default_searcher, \
         naive_rag, \
-        academic_translator, \
-        overview_rag
+        academic_translator
     module_factory = ModuleFactory(config)
     llm = module_factory.create_llm()
 
@@ -190,24 +192,5 @@ def init_config(config: Configuration):
     # Initialize AcademicTranslator
     academic_translator = AcademicTranslator(llm=llm, rbase_settings=config.rbase_settings)
 
-    log.debug("initializing overview_rag")
-    # Initialize OverviewRAG
-    try:
-        # Initialize OverviewRAG
-        overview_rag = OverviewRAG(
-            llm=llm,
-            reasoning_llm=reasoning_llm,
-            writing_llm=writing_llm,
-            translator=academic_translator,
-            embedding_model=embedding_model,
-            vector_db=vector_db,
-            text_window_splitter=config.rbase_settings.get("overview_rag", {}).get(
-                "text_window_splitter", True
-            ),
-            rbase_settings=config.rbase_settings,
-        )
-
-        log.info("OverviewRAG initialized successfully")
-    except Exception as e:
-        log.critical(f"Failed to initialize OverviewRAG: {e}")
-        overview_rag = None
+    config.is_initialized = True
+    log.debug("initialization finished")
