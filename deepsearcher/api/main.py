@@ -1,10 +1,13 @@
 """
-FastAPI应用主文件
+FastAPI Application Entry Point
 
-本模块定义了FastAPI应用的主入口，包括应用配置和路由注册。
+This module initializes and configures the FastAPI application.
 """
 
 import os
+import logging
+import argparse
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,30 +15,63 @@ from deepsearcher import configuration
 from deepsearcher.configuration import Configuration, init_config
 from deepsearcher.api.routes import router
 
-# 使用匿名函数立即执行配置初始化
-(lambda: (
-    # 获取配置文件路径
-    setattr(configuration, 'config', Configuration(
-        os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-            "..",
-            "config.rbase.yaml"
-        )
-    )),
-    # 初始化配置
-    init_config(configuration.config)
-))()
+# Configure logging
+logger = logging.getLogger(__name__)
+config_loaded = False
 
-# 创建FastAPI应用
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI application.
+    Handles startup and shutdown events.
+    """
+    global config_loaded
+    if not config_loaded:
+        logger.info("Initializing Rbase API...")
+        setattr(configuration, 'config', Configuration(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                "..",
+                "config.rbase.yaml"
+            )
+        ))
+        # 初始化配置
+        init_config(configuration.config)
+    
+    # 配置日志
+    rbase_settings = configuration.config.rbase_settings
+    api_settings = rbase_settings.get('api', {})
+    log_file = api_settings.get('log_file', 'logs/api.log')
+    
+    # 确保日志目录存在
+    log_dir = os.path.dirname(log_file)
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # 配置日志记录
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger.info("Rbase API initialized successfully")
+    yield
+    logger.info("Shutting down Rbase API...")
+
+# Initialize FastAPI app
 app = FastAPI(
     title="Rbase API",
-    description="Rbase API服务，提供AI概述和推荐问题功能",
-    version="0.1.0",
+    description="API for Rbase academic research platform",
+    version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
-# 配置CORS
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 允许所有来源，生产环境应该限制
@@ -44,9 +80,8 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有头
 )
 
-# 注册路由
+# Include routers
 app.include_router(router, prefix="/api/v1")
-
 
 @app.get("/")
 async def root():
@@ -59,10 +94,82 @@ async def root():
         "description": "Rbase API服务，提供AI概述和推荐问题功能",
     }
 
-
 @app.get("/health")
 async def health_check():
     """
     健康检查接口
     """
-    return {"status": "healthy"} 
+    return {"status": "healthy"}
+
+# 获取服务器配置从配置文件
+def get_server_config(config_path: str = "config.rbase.yaml"):
+    """
+    从配置文件中获取服务器配置
+    
+    Returns:
+        tuple: (host, port) 主机地址和端口
+    """
+    global config_loaded
+    try:
+        setattr(configuration, 'config', Configuration(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                "..",
+                "config.rbase.yaml"
+            )
+        ))
+        init_config(configuration.config)
+        if configuration.config.is_initialized:
+            config_loaded = True
+        rbase_settings = configuration.config.rbase_settings
+        api_settings = rbase_settings.get('api', {})
+        host = api_settings.get('host', '0.0.0.0')
+        port = int(api_settings.get('port', 8000))
+        return host, port
+    except Exception as e:
+        logger.error(f"获取服务器配置失败: {e}")
+        return '0.0.0.0', 8000
+
+# 当作为主程序运行时，使用配置文件中的设置启动服务器
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Rbase API")
+    parser.add_argument("--config", "-c", default="config.rbase.yaml", help="配置文件路径")
+    parser.add_argument("--verbose", "-v", action="store_true", help="是否开启详细日志")
+    args = parser.parse_args()
+
+    host, port = get_server_config(args.config)
+    logger.info(f"Starting server at {host}:{port}")
+
+    # 配置uvicorn日志
+    import uvicorn
+    
+    # 读取日志文件配置
+    rbase_settings = configuration.config.rbase_settings
+    api_settings = rbase_settings.get('api', {})
+    log_file = api_settings.get('log_file', 'logs/api.log')
+    
+    # 确保日志目录存在
+    log_dir = os.path.dirname(log_file)
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # 配置uvicorn的日志
+    log_config = uvicorn.config.LOGGING_CONFIG
+    
+    # 统一日志格式
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_config["formatters"]["default"]["fmt"] = log_format
+    log_config["formatters"]["access"]["fmt"] = log_format
+    
+    # 添加文件处理器到所有日志配置
+    for logger_name in log_config["loggers"]:
+        logger_conf = log_config["loggers"][logger_name]
+        logger_conf["handlers"] = ["default", "file"]
+    
+    # 定义文件处理器
+    log_config["handlers"]["file"] = {
+        "class": "logging.FileHandler",
+        "formatter": "default",
+        "filename": log_file
+    }
+    
+    uvicorn.run("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config) 

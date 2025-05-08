@@ -72,7 +72,7 @@ class SummaryResponse(BaseModel):
         description="内容"
     )
     created: Optional[int] = Field(
-        ...,
+        None,   
         description="创建时间"
     )
     model: Optional[str] = Field(
@@ -267,6 +267,13 @@ class AIContentResponse(BaseModel):
         description="更新时间"
     )
 
+class ExceptionResponse(BaseModel):
+    """异常响应模型"""
+    code: int = Field(
+        ...,
+        description="响应码：0-成功，非0-失败"
+    )
+    message: str = Field(..., description="响应消息")
 
 def initialize_ai_request_by_summary(request: SummaryRequest):
     """

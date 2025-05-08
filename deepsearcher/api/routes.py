@@ -1,18 +1,17 @@
 """
-API路由定义
+API Route Definitions
 
-本模块定义了FastAPI接口的路由和处理函数。
+This module defines the FastAPI routes and their handler functions for the Rbase API.
 """
 
 import asyncio
 import json
 import time
-import os
 from typing import AsyncGenerator
-from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+import random
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse, JSONResponse
 from deepsearcher import configuration
 
 from deepsearcher.agent.summary_rag import SummaryRag
@@ -24,7 +23,6 @@ from deepsearcher.api.models import (
     SummaryResponse,
     QuestionRequest,
     QuestionResponse,
-    AIContentType,
     AIContentRequest,
     AIRequestStatus,
     AIContentResponse,
@@ -32,22 +30,23 @@ from deepsearcher.api.models import (
     initialize_ai_request_by_summary,
     initialize_ai_request_by_question,
     initialize_ai_content_response,
+    ExceptionResponse,
 )
 
 router = APIRouter()
 
-
 async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[bytes, None]:
     """
-    生成流式响应
+    Generate a streaming response for text content.
 
     Args:
-        text: 要发送的文本内容
+        text (str): The text content to be streamed
+        response_id (int): The unique identifier for this response
 
     Yields:
-        bytes: 流式响应数据
+        bytes: Chunks of the streaming response data
     """
-    # 发送role消息
+    # Send role message
     role_chunk = {
         "id": f"chatcmpl-{response_id}",
         "object": "chat.completion.chunk",
@@ -61,51 +60,68 @@ async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[by
     }
     yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
     
-    # 发送内容消息
-    words = text.split()
-    for i, word in enumerate(words):
-        await asyncio.sleep(0.5)  # 模拟延迟
+    # 将文本均匀划分为30段
+    total_chunks = 30
+    text_length = len(text)
+    chunk_size = max(1, text_length // total_chunks)
+    chunks = []
+    
+    for i in range(total_chunks - 1):
+        start_idx = i * chunk_size
+        end_idx = (i + 1) * chunk_size
+        if start_idx < text_length:
+            chunks.append(text[start_idx:end_idx])
+    
+    # 添加最后一段，包含所有剩余文本
+    if (total_chunks - 1) * chunk_size < text_length:
+        chunks.append(text[(total_chunks - 1) * chunk_size:])
+    
+    # 移除空块
+    chunks = [chunk for chunk in chunks if chunk]
+    
+    # 发送每一段内容
+    for i, chunk in enumerate(chunks):
+        await asyncio.sleep(random.uniform(0.1, 0.4))  # random delay
         content_chunk = {
             "id": f"chatcmpl-{response_id}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": "rbase-summary-rag",
             "choices": [{
-                "index": 0,
-                "delta": {"content": word},
-                "finish_reason": None if i < len(words) - 1 else "stop"
+                "index": i,
+                "delta": {"content": chunk},
+                "finish_reason": None if i < len(chunks) - 1 else "stop"
             }]
         }
         yield f"data: {json.dumps(content_chunk)}\n\n".encode('utf-8')
     
-    # 发送结束标记
+    # Send end marker
     yield "data: [DONE]\n\n".encode('utf-8')
 
 
 @router.post(
     "/generate/summary",
-    response_model=SummaryResponse,
-    summary="AI概述接口",
+    summary="AI Summary Generation API",
     description="""
-    生成AI概述内容。
+    Generate AI summary content.
     
-    - 支持作者、主题、论文三种关联类型
-    - 可选择是否使用缓存
-    - 支持流式响应
+    - Supports author, topic, and paper related types
+    - Optional cache usage
+    - Supports streaming response
     """,
 )
 async def api_generate_summary(request: SummaryRequest):
     """
-    生成AI概述内容
+    Generate AI summary content based on the request.
 
     Args:
-        request: 请求参数
+        request (SummaryRequest): The summary request parameters
 
     Returns:
-        SummaryResponse或StreamingResponse: 响应结果
+        Union[SummaryResponse, StreamingResponse]: The response result
 
     Raises:
-        HTTPException: 当请求参数无效或处理失败时抛出
+        HTTPException: When request parameters are invalid or processing fails
     """
     try:
         ai_request = initialize_ai_request_by_summary(request)
@@ -121,56 +137,70 @@ async def api_generate_summary(request: SummaryRequest):
         else:
             resp = SummaryResponse(code=0, message="success")
             if not ai_response:
-                summary = create_ai_content(ai_request, request.related_type)
+                summary = generate_ai_content(ai_request, request.related_type)
                 resp.setContent(summary)
             else:
                 resp.setContent(ai_response.content)
 
             return resp
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        return JSONResponse(
+            status_code=500,
+            content=ExceptionResponse(code=500, message=str(e)).dict()
+        )
 
 @router.post(
     "/generate/questions",
-    response_model=QuestionResponse,
-    summary="AI推荐问题接口",
+    summary="AI Question Recommendation API",
     description="""
-    生成AI推荐问题。
+    Generate AI recommended questions.
     
-    - 支持作者、主题、论文三种关联类型
-    - 可选择是否使用缓存
-    - 支持流式响应
+    - Supports author, topic, and paper related types
+    - Optional cache usage
+    - Supports streaming response
     """,
 )
-async def api_generate_questions(request: QuestionRequest) -> QuestionResponse:
+async def api_generate_questions(request: QuestionRequest):
     """
-    生成AI推荐问题
+    Generate AI recommended questions based on the request.
 
     Args:
-        request: 请求参数
+        request (QuestionRequest): The question request parameters
 
     Returns:
-        QuestionResponse: 响应结果
+        QuestionResponse: The response containing recommended questions
 
     Raises:
-        HTTPException: 当请求参数无效或处理失败时抛出
+        HTTPException: When request parameters are invalid or processing fails
     """
     try:
         ai_request = initialize_ai_request_by_question(request)
         ai_response = get_response_by_request_hash(ai_request.request_hash)
         question_response = QuestionResponse(code=0, message="success")
         if not ai_response:
-            summary = create_ai_content(ai_request, request.related_type) 
+            summary = generate_ai_content(ai_request, request.related_type) 
             question_response.setQuestions(summary)
         else:
             question_response.setQuestions(ai_response.content)
         return question_response
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=500,
+            content=ExceptionResponse(code=500, message=str(e)).dict()
+        )
 
 
 def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedType) -> StreamingResponse:
+    """
+    Create a streaming response for summary generation.
+
+    Args:
+        ai_request (AIContentRequest): The AI content request
+        related_type (RelatedType): The type of related content
+
+    Returns:
+        StreamingResponse: The streaming response object
+    """
     rbase_config = configuration.config.rbase_settings
     request_id = save_request_to_db(ai_request)
     ai_request.id = request_id
@@ -185,13 +215,16 @@ def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedTyp
     
 async def generate_summary_stream(rbase_config: dict, ai_request: AIContentRequest, ai_response: AIContentResponse, related_type: RelatedType) -> AsyncGenerator[bytes, None]:
     """
-    生成流式响应
+    Generate a streaming response for summary content.
 
     Args:
-        text: 要发送的文本内容
+        rbase_config (dict): The Rbase configuration
+        ai_request (AIContentRequest): The AI content request
+        ai_response (AIContentResponse): The AI content response
+        related_type (RelatedType): The type of related content
 
     Yields:
-        bytes: 流式响应数据
+        bytes: Chunks of the streaming response data
     """
     if related_type == RelatedType.CHANNEL:
         articles = load_articles_by_channel(rbase_config, ai_request.params.get("channel_id", 0))
@@ -204,7 +237,7 @@ async def generate_summary_stream(rbase_config: dict, ai_request: AIContentReque
         reasoning_llm=configuration.reasoning_llm,
         writing_llm=configuration.writing_llm,
     )
-    # 发送role消息
+    # Send role message
 
     role_chunk = {
         "id": f"chatcmpl-{ai_response.id}",
@@ -260,7 +293,17 @@ async def generate_summary_stream(rbase_config: dict, ai_request: AIContentReque
     yield "data: [DONE]\n\n".encode('utf-8')
 
 
-def create_ai_content(ai_request: AIContentRequest, related_type: RelatedType) -> str:
+def generate_ai_content(ai_request: AIContentRequest, related_type: RelatedType) -> str:
+    """
+    Create AI content based on the request and related type.
+
+    Args:
+        ai_request (AIContentRequest): The AI content request
+        related_type (RelatedType): The type of related content
+
+    Returns:
+        str: The generated content
+    """
     rbase_config = configuration.config.rbase_settings
     request_id = save_request_to_db(ai_request)
     ai_request.id = request_id
