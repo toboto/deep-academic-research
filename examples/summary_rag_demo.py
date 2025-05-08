@@ -83,7 +83,7 @@ def main(
     start_time = time.time()
 
     # 调用SummaryRag生成摘要
-    summary, _, tokens = summary_rag.query(
+    summary, _, usage = summary_rag.query(
         query=query,
         articles=articles,
         min_words=min_words,
@@ -98,7 +98,7 @@ def main(
     # 显示统计信息
     log.color_print("\n科研总结生成完成！")
     log.color_print(f"用时: {time_spent:.2f}秒")
-    log.color_print(f"消耗tokens: {tokens}")
+    log.color_print(f"消耗tokens: {usage.total_tokens}")
 
     # 将结果保存到文件
     with open(output_file, "w", encoding="utf-8") as f:

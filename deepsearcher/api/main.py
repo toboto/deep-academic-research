@@ -4,10 +4,27 @@ FastAPI应用主文件
 本模块定义了FastAPI应用的主入口，包括应用配置和路由注册。
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from deepsearcher import configuration
+from deepsearcher.configuration import Configuration, init_config
 from deepsearcher.api.routes import router
+
+# 使用匿名函数立即执行配置初始化
+(lambda: (
+    # 获取配置文件路径
+    setattr(configuration, 'config', Configuration(
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+            "..",
+            "config.rbase.yaml"
+        )
+    )),
+    # 初始化配置
+    init_config(configuration.config)
+))()
 
 # 创建FastAPI应用
 app = FastAPI(
