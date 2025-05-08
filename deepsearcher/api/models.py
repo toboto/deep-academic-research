@@ -5,8 +5,9 @@ API数据模型定义
 """
 
 import hashlib
+import json
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -34,6 +35,10 @@ class SummaryRequest(BaseModel):
         None,
         description="关联ID，可选"
     )
+    term_ids: Optional[List[int]] = Field(
+        None,
+        description="关键词ID列表，可选"
+    )
     ver: int = Field(
         ...,
         description="版本号"
@@ -58,7 +63,47 @@ class SummaryResponse(BaseModel):
         ...,
         description="响应消息"
     )
+    id: Optional[str] = Field(
+        None,
+        description="ID"
+    )
+    content: Optional[str] = Field(
+        None,
+        description="内容"
+    )
+    created: Optional[int] = Field(
+        ...,
+        description="创建时间"
+    )
+    model: Optional[str] = Field(
+        None,
+        description="模型"
+    )
+    object: Optional[str] = Field(
+        None,
+        description="对象"
+    )
+    choices: Optional[List[dict]] = Field(
+        None,
+        description="回答选项"
+    )
 
+    def setContent(self, content: str):
+        self.content = content
+        self.created = int(datetime.now().timestamp())
+        self.id = f"chatcmpl-{self.created}"
+        self.model = "rbase-rag"
+        self.object = "chat.completion"
+        self.choices = [
+            {
+                "index": 0,
+                "message": {
+                    "content": content,
+                    "role": "assistant",
+                },
+                "finish_reason": "stop"
+            }
+        ]
 
 class QuestionRequest(BaseModel):
     """AI推荐问题接口请求模型"""
@@ -70,6 +115,10 @@ class QuestionRequest(BaseModel):
         None,
         description="关联ID，可选"
     )
+    term_ids: Optional[List[int]] = Field(
+        None,
+        description="关键词ID列表，可选"
+    )
     ver: int = Field(
         ...,
         description="版本号"
@@ -78,9 +127,9 @@ class QuestionRequest(BaseModel):
         ...,
         description="缓存抑制：0-启用缓存，1-禁用缓存"
     )
-    stream: bool = Field(
+    count: int = Field(
         ...,
-        description="是否使用流式响应"
+        description="问题数量"
     )
 
 
@@ -94,6 +143,15 @@ class QuestionResponse(BaseModel):
         ...,
         description="响应消息"
     ) 
+    questions: Optional[List[str]] = Field(
+        None,
+        description="问题列表"
+    )
+
+    def setQuestions(self, content: str):
+        # 将content按换行符分割，得到问题列表
+        questions = [q for q in content.strip().split('\n') if q]
+        self.questions = questions
 
 class AIContentType(int, Enum):
     """AI内容类型枚举"""
@@ -155,58 +213,15 @@ class AIContentRequest(BaseModel):
         description="更新时间"
     )
 
-    def parseFromSummaryRequest(self, request: SummaryRequest):
-        # TODO: 尚未完成
-        if request.related_type == RelatedType.CHANNEL:
-            self.content_type = AIContentType.SHORT_SUMMARY
-        elif request.related_type == RelatedType.COLUMN:
-            self.content_type = AIContentType.SHORT_SUMMARY
-        elif request.related_type == RelatedType.ARTICLE:
-            self.content_type = AIContentType.SHORT_SUMMARY
-        
-        if request.stream:
-            self.is_stream_response = StreamResponse.ALLOW
-        else:
-            self.is_stream_response = StreamResponse.DENY
-        self.query = self.createQueryByRequest(request)
-        self.params = self.createParamsByRequest(request)
-        self.hash()
-        self.status = AIRequestStatus.START_REQ
-        self.created = datetime.now()
-        self.modified = datetime.now()
-
-    
-    def createQueryByRequest(self, request: SummaryRequest) -> str:
-        if request.related_type == RelatedType.CHANNEL:
-            query = f"频道{request.related_id}的概述"
-        elif request.related_type == RelatedType.COLUMN:
-            query = f"栏目{request.related_id}的概述"
-        elif request.related_type == RelatedType.ARTICLE:
-            query = f"文章{request.related_id}的概述"
-        return query
-    
-    def createParamsByRequest(self, request: SummaryRequest) -> dict:
-        if request.related_type == RelatedType.CHANNEL:
-            params = {
-                "channel_id": request.related_id
-            }
-        elif request.related_type == RelatedType.COLUMN:
-            params = {
-                "column_id": request.related_id
-            }
-        elif request.related_type == RelatedType.ARTICLE:
-            params = {
-                "article_id": request.related_id
-            }
-        return params
-    
     def hash(self) -> str:
-        self.request_hash = hashlib.md5(self.query.encode()).hexdigest()
+        # 综合query、params和content_type计算hash值
+        hash_str = f"{self.content_type}_{self.query}_{json.dumps(self.params, sort_keys=True)}"
+        self.request_hash = hashlib.md5(hash_str.encode()).hexdigest()
 
 class AIResponseStatus(int, Enum):
     """AI响应状态枚举"""
     GENERATING = 1 # 生成中
-    FINISH_RES = 10 # 已完成
+    FINISHED = 10 # 已完成
     DEPRECATED = 100 # 已废弃
 
 class AIContentResponse(BaseModel):
@@ -239,10 +254,6 @@ class AIContentResponse(BaseModel):
         ...,
         description="缓存命中次数"
     )
-    cache_miss_cnt: int = Field(
-        ...,
-        description="缓存未命中次数"
-    )
     status: AIResponseStatus = Field(
         ...,
         description="状态"
@@ -255,3 +266,172 @@ class AIContentResponse(BaseModel):
         ...,
         description="更新时间"
     )
+
+
+def initialize_ai_request_by_summary(request: SummaryRequest):
+    """
+    Initialize an AIContentRequest object from a SummaryRequest.
+    
+    Args:
+        request (SummaryRequest): The source summary request
+        
+    Returns:
+        AIContentRequest: A new AI content request object initialized with values from the summary request
+    """
+    ai_request = AIContentRequest(
+        id=0,
+        content_type=AIContentType.SHORT_SUMMARY,
+        is_stream_response=StreamResponse.ALLOW if request.stream else StreamResponse.DENY,
+        query=_create_query_by_summary_request(request, AIContentType.SHORT_SUMMARY),
+        params=_create_params_by_summary_request(request),
+        request_hash="",
+        status=AIRequestStatus.START_REQ,
+        created=datetime.now(),
+        modified=datetime.now()
+    )
+    ai_request.hash()
+    return ai_request
+
+def initialize_ai_request_by_question(request: QuestionRequest):
+    """
+    Initialize an AIContentRequest object from a QuestionRequest.
+    
+    Args:
+        request (QuestionRequest): The source question request
+        
+    Returns:
+        AIContentRequest: A new AI content request object initialized with values from the question request
+    """
+    ai_request = AIContentRequest(
+        id=0,
+        content_type=AIContentType.ASSOCIATED_QUESTION,
+        is_stream_response=StreamResponse.DENY,
+        query=_create_query_by_question_request(request),
+        params=_create_params_by_question_request(request),
+        request_hash="",
+        status=AIRequestStatus.START_REQ,
+        created=datetime.now(),
+        modified=datetime.now()
+    )
+    ai_request.hash()
+    return ai_request
+
+def initialize_ai_content_response(request: SummaryRequest, ai_content_request_id: int):
+    """
+    Initialize an AIContentResponse object from a SummaryRequest.
+    
+    Args:
+        request (SummaryRequest): The source summary request
+        
+    Returns:
+        AIContentResponse: A new AI content response object initialized with default values
+    """
+    ai_response = AIContentResponse(
+        id=0,
+        ai_request_id=ai_content_request_id,
+        is_generating=0,
+        content="",
+        tokens={"generating": []},
+        usage={},
+        cache_hit_cnt=0,
+        status=AIResponseStatus.GENERATING,
+        created=datetime.now(),
+        modified=datetime.now()
+    )
+    return ai_response
+
+def _create_query_by_summary_request(request: SummaryRequest, content_type: AIContentType) -> str:
+    """
+    Create a query string based on the related type in the summary request.
+    
+    Args:
+        request (SummaryRequest): The summary request containing the related type
+        
+    Returns:
+        str: A query string appropriate for the related type
+    """
+    if content_type == AIContentType.SHORT_SUMMARY:
+        if request.related_type == RelatedType.CHANNEL:
+            return "请分析这个频道收录的这些文章的研究主题和科研成果，给首次来到这个频道的读者一个阅读指引"
+        elif request.related_type == RelatedType.COLUMN:
+            return "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+        elif request.related_type == RelatedType.ARTICLE:
+            return "请分析这个文章的研究主题和科研成果，给首次来到这个文章的读者一个阅读指引"
+    elif content_type == AIContentType.QUESTIONS:
+        if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
+            return "这是一个关于{column_description}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
+        elif request.related_type == RelatedType.ARTICLE:
+            return "这是一个关于{article_description}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
+    
+    return ""
+
+def _create_params_by_summary_request(request: SummaryRequest) -> dict:
+    """
+    Create a parameters dictionary based on the summary request.
+    
+    Args:
+        request (SummaryRequest): The summary request containing related type and ID
+        
+    Returns:
+        dict: A dictionary containing the appropriate parameters based on the related type
+    """
+    if request.related_type == RelatedType.CHANNEL:
+        params = {
+            "channel_id": request.related_id
+        }
+    elif request.related_type == RelatedType.COLUMN:
+        params = {
+            "column_id": request.related_id
+        }
+    elif request.related_type == RelatedType.ARTICLE:
+        params = {
+            "article_id": request.related_id
+        }
+    params["ver"] = request.ver
+    params["term_ids"] = request.term_ids
+    return params
+
+def _create_query_by_question_request(request: QuestionRequest) -> str:
+    """
+    Create a query string based on the related type in the question request.
+    
+    Args:
+        request (QuestionRequest): The question request containing the related type
+        
+    Returns:
+        str: A query string appropriate for the related type
+    """
+    if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
+        return "这是一个关于{column_description}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
+    elif request.related_type == RelatedType.ARTICLE:
+        return "这是一个关于{article_description}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
+    
+    return ""
+
+def _create_params_by_question_request(request: QuestionRequest) -> dict:
+    """
+    Create a parameters dictionary based on the question request.
+    
+    Args:
+        request (QuestionRequest): The question request containing related type and ID
+        
+    Returns:
+        dict: A dictionary containing the appropriate parameters based on the related type
+    """
+    if request.related_type == RelatedType.CHANNEL:
+        params = {
+            "channel_id": request.related_id
+        }
+    elif request.related_type == RelatedType.COLUMN:
+        params = {
+            "column_id": request.related_id
+        }
+    elif request.related_type == RelatedType.ARTICLE:
+        params = {
+            "article_id": request.related_id
+        }
+    params["ver"] = request.ver
+    params["term_ids"] = request.term_ids
+    params["question_count"] = request.count
+    return params
+    
