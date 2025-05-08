@@ -370,3 +370,14 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
         raise Exception(f"Failed to process database data: {e}")
     
     return [RbaseArticle(pdf) for pdf in pdf_files]
+
+
+def load_articles_by_channel(rbase_config: dict, channel_id: int, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    return load_from_rbase_db(rbase_config, offset, limit)
+
+def load_articles_by_column(rbase_config: dict, column_id: int, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    return load_from_rbase_db(rbase_config, offset, limit)
+
+def load_articles_by_article_ids(rbase_config: dict, article_ids: list[int], offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    return load_from_rbase_db(rbase_config, offset, limit)
+
