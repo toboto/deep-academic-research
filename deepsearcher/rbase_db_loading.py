@@ -1,11 +1,14 @@
 import re
 import tempfile
+import os
 from typing import List, Tuple
 from tqdm import tqdm
 
 from deepsearcher import configuration
 from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
 from deepsearcher.db.mysql_connection import get_mysql_connection, close_mysql_connection
+from deepsearcher.loader.splitter import split_docs_to_chunks
+from deepsearcher.tools.log import warning, error
 
 def init_vector_db(
     collection_name: str, collection_description: str, force_new_collection: bool = False
