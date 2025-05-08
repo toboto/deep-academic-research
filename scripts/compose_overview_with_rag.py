@@ -53,7 +53,19 @@ def main(
     start_time = time.time()
 
     # 调用OverviewRAG生成综述
-    from deepsearcher.configuration import overview_rag
+    from deepsearcher.agent.overview_rag import OverviewRAG
+    overview_rag = OverviewRAG(
+        llm=configuration.llm,
+        reasoning_llm=configuration.reasoning_llm,
+        writing_llm=configuration.writing_llm,
+        translator=configuration.academic_translator,
+        embedding_model=configuration.embedding_model,
+        vector_db=configuration.vector_db,
+        text_window_splitter=config.rbase_settings.get("overview_rag", {}).get(
+            "text_window_splitter", True
+        ),
+        rbase_settings=config.rbase_settings,
+    )
 
     response, _, tokens_used = overview_rag.query(
         query,
