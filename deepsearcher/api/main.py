@@ -8,12 +8,16 @@ import os
 import logging
 import argparse
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 from deepsearcher import configuration
 from deepsearcher.configuration import Configuration, init_config
 from deepsearcher.api.routes import router
+from deepsearcher.api.models import ExceptionResponse
 from deepsearcher.tools.log import set_dev_mode, set_level
 
 # Configure logging
@@ -130,6 +134,22 @@ def get_server_config(config_path: str = "config.rbase.yaml"):
     except Exception as e:
         logger.error(f"获取服务器配置失败: {e}")
         return '0.0.0.0', 8000
+
+# 添加全局异常处理器
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=400,
+        content=ExceptionResponse(code=400, message=str(exc)).model_dump()
+    )
+
+# 添加其他异常处理器
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content=ExceptionResponse(code=500, message=str(exc)).model_dump()
+    )
 
 # 当作为主程序运行时，使用配置文件中的设置启动服务器
 if __name__ == "__main__":
