@@ -13,12 +13,11 @@ from typing import Dict, List, Optional, Tuple
 
 import jieba
 import jieba.posseg as pseg
-import pymysql
 
 from deepsearcher.agent.base import BaseAgent, describe_class
 from deepsearcher.llm.base import BaseLLM
 from deepsearcher.tools.log import debug, error, warning
-
+from deepsearcher.db.mysql_connection import get_mysql_connection
 
 @describe_class(
     "This Agent is used to translate academic texts into specified languages, with special focus on accurate translation of professional terminology."
@@ -46,35 +45,13 @@ class AcademicTranslator(BaseAgent):
         # Get database configuration and connect to database
         self.db_config = rbase_settings["database"]
         self.dict_config = rbase_settings["dict_path"]
-        self.db_connection = self._get_mysql_connection()
+        self.db_connection = None
 
         # Load jieba user dictionary
         self._load_jieba_dict()
 
         # Cache previously queried term translations to avoid duplicate database queries
         self.term_cache = {}
-
-    def _get_mysql_connection(self) -> pymysql.connections.Connection:
-        """
-        内部方法，创建MySQL数据库连接
-
-        返回:
-            MySQL数据库连接对象
-        """
-        try:
-            conn = pymysql.connect(
-                host=self.db_config.get("config", {}).get("host", "localhost"),
-                port=int(self.db_config.get("config", {}).get("port", 3306)),
-                user=self.db_config.get("config", {}).get("username", ""),
-                password=self.db_config.get("config", {}).get("password", ""),
-                database=self.db_config.get("config", {}).get("database", ""),
-                charset="utf8mb4",
-                cursorclass=pymysql.cursors.DictCursor,
-            )
-            return conn
-        except Exception as e:
-            error(f"Failed to connect to MySQL database: {e}")
-            raise ConnectionError(f"Failed to connect to MySQL database: {e}")
 
     def _load_jieba_dict(self) -> None:
         """
@@ -211,6 +188,7 @@ class AcademicTranslator(BaseAgent):
             return self.term_cache[cache_key]
 
         try:
+            self.db_connection = get_mysql_connection(self.db_config)
             with self.db_connection.cursor() as cursor:
                 if source_lang == "zh" and target_lang == "en":
                     # Chinese -> English
