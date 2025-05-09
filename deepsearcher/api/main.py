@@ -138,9 +138,19 @@ def get_server_config(config_path: str = "config.rbase.yaml"):
 # 添加全局异常处理器
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """格式化请求验证错误信息"""
+    error_messages = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error["loc"])
+        message = f"字段 '{field}' 验证失败: {error['msg']}"
+        error_messages.append(message)
+    
     return JSONResponse(
         status_code=400,
-        content=ExceptionResponse(code=400, message=str(exc)).model_dump()
+        content=ExceptionResponse(
+            code=400, 
+            message="请求参数验证失败:\n" + "\n".join(error_messages)
+        ).model_dump()
     )
 
 # 添加其他异常处理器
