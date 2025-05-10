@@ -22,7 +22,6 @@ from deepsearcher.tools.log import set_dev_mode, set_level
 
 # Configure logging
 logger = logging.getLogger(__name__)
-config_loaded = False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,18 +29,16 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI application.
     Handles startup and shutdown events.
     """
-    global config_loaded
-    if not config_loaded:
-        logger.info("Initializing Rbase API...")
-        setattr(configuration, 'config', Configuration(
-            os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-                "..",
-                "config.rbase.yaml"
-            )
-        ))
-        # 初始化配置
-        init_config(configuration.config)
+    logger.info("Initializing Rbase API...")
+    setattr(configuration, 'config', Configuration(
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+            "..",
+            "config.rbase.yaml"
+        )
+    ))
+    # 初始化配置
+    init_config(configuration.config)
     
     # 配置日志
     rbase_settings = configuration.config.rbase_settings
@@ -114,19 +111,15 @@ def get_server_config(config_path: str = "config.rbase.yaml"):
     Returns:
         tuple: (host, port) 主机地址和端口
     """
-    global config_loaded
     try:
-        setattr(configuration, 'config', Configuration(
+        conf = Configuration(
             os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
                 "..",
                 config_path
             )
-        ))
-        if init_config(configuration.config):
-            configuration.config.is_initialized = True
-            config_loaded = True
-        rbase_settings = configuration.config.rbase_settings
+        )
+        rbase_settings = conf.rbase_settings
         api_settings = rbase_settings.get('api', {})
         host = api_settings.get('host', '0.0.0.0')
         port = int(api_settings.get('port', 8000))
@@ -210,4 +203,7 @@ if __name__ == "__main__":
         "filename": log_file
     }
     
-    uvicorn.run("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config) 
+    # uvicorn.run("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config) 
+    uvicorn_config = uvicorn.Config("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config)
+    server = uvicorn.Server(uvicorn_config)
+    server.run()

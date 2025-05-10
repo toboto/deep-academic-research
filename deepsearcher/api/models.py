@@ -4,19 +4,28 @@ API数据模型定义
 本模块定义了FastAPI接口的请求和响应数据结构。
 """
 
-import hashlib
-import json
 from enum import Enum
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+class ExceptionResponse(BaseModel):
+    """异常响应模型"""
+    code: int = Field(
+        ...,
+        description="响应码：0-成功，非0-失败"
+    )
+    message: str = Field(..., description="响应消息")
 
 class RelatedType(int, Enum):
     """关联类型枚举"""
     CHANNEL = 1  # 频道
     COLUMN = 2   # 栏目
     ARTICLE = 3   # 文章
+
+    @staticmethod
+    def IsValid(related_type: int) -> bool:
+        return related_type in [RelatedType.CHANNEL, RelatedType.COLUMN, RelatedType.ARTICLE]
 
 
 class DepressCache(int, Enum):
@@ -153,292 +162,89 @@ class QuestionResponse(BaseModel):
         questions = [q for q in content.strip().split('\n') if q]
         self.questions = questions
 
-class AIContentType(int, Enum):
-    """AI内容类型枚举"""
-    LONG_SUMMARY = 1  # 长综述
-    SHORT_SUMMARY = 2   # 短综述
-    DISCUSSION = 10   # 讨论
-    RECOMMEND_READ = 20   # 推荐阅读
-    ASSOCIATED_QUESTION = 30   # 关联提问
-
-class StreamResponse(int, Enum):
-    """流式响应枚举"""
-    DENY = 0  # 禁用流式响应
-    ALLOW = 1 # 启用流式响应
-
-class AIRequestStatus(int, Enum):
-    """AI请求状态枚举"""
-    START_REQ = 1 # 开始请求
-    RECV_REQ = 2 # 收到请求
-    HANDLING_REQ= 3 # 处理请求
-    FINISHED = 10 # 已完成
-    DEPRECATED = 100 # 已废弃
-
-class AIContentRequest(BaseModel):
-    """AI内容接口请求模型"""
-    id: int = Field(
+class DiscussCreateRequest(BaseModel):
+    """创建讨论话题请求模型"""
+    related_type: RelatedType = Field(
         ...,
-        description="ID"
+        description="关联类型：1-频道，2-栏目，3-文章"
     )
-    content_type: AIContentType = Field(
-        ...,
-        description="内容类型：1-长综述，2-短综述，10-讨论，20-推荐阅读，30-关联提问"
+    related_id: Optional[int] = Field(
+        None,
+        description="关联ID，可选"
     )
-    is_stream_response: StreamResponse = Field(
-        ...,
-        description="是否使用流式响应：0-禁用流式响应，1-启用流式响应"
+    term_ids: Optional[List[int]] = Field(
+        None,
+        description="关键词ID列表，可选"
     )
-    query: str = Field(
+    ver: int = Field(
         ...,
-        description="查询内容"
+        description="版本号"
     )
-    params: dict = Field(
+    user_hash: str = Field(
         ...,
-        description="查询参数"
+        description="用户hash"
     )
-    request_hash: str = Field(
+    user_id: int = Field(
         ...,
-        description="请求hash"
-    )
-    status: AIRequestStatus = Field(
-        ...,
-        description="状态"
-    )
-    created: datetime = Field(
-        ...,
-        description="创建时间"
-    )
-    modified: datetime = Field(
-        ...,
-        description="更新时间"
+        description="用户ID"
     )
 
-    def hash(self) -> str:
-        # 综合query、params和content_type计算hash值
-        hash_str = f"{self.content_type}_{self.query}_{json.dumps(self.params, sort_keys=True)}"
-        self.request_hash = hashlib.md5(hash_str.encode()).hexdigest()
 
-class AIResponseStatus(int, Enum):
-    """AI响应状态枚举"""
-    GENERATING = 1 # 生成中
-    FINISHED = 10 # 已完成
-    DEPRECATED = 100 # 已废弃
 
-class AIContentResponse(BaseModel):
-    """AI内容接口响应模型"""
-    id: int = Field(
-        ...,
-        description="ID"
-    )
-    ai_request_id: int = Field(
-        ...,
-        description="AI请求ID"
-    )
-    is_generating: int = Field(
-        ...,
-        description="是否正在生成：0-不在生成，1-正在生成"
-    )
-    content: str = Field(
-        ...,
-        description="内容"
-    )
-    tokens: dict = Field(
-        ...,
-        description="令牌"
-    )
-    usage: dict = Field(
-        ...,
-        description="使用情况"
-    )
-    cache_hit_cnt: int = Field(
-        ...,
-        description="缓存命中次数"
-    )
-    status: AIResponseStatus = Field(
-        ...,
-        description="状态"
-    )
-    created: datetime = Field(
-        ...,
-        description="创建时间"
-    )
-    modified: datetime = Field(
-        ...,
-        description="更新时间"
-    )
-
-class ExceptionResponse(BaseModel):
-    """异常响应模型"""
+class DiscussCreateResponse(BaseModel):
+    """创建讨论话题响应模型"""
     code: int = Field(
         ...,
         description="响应码：0-成功，非0-失败"
     )
-    message: str = Field(..., description="响应消息")
-
-def initialize_ai_request_by_summary(request: SummaryRequest):
-    """
-    Initialize an AIContentRequest object from a SummaryRequest.
-    
-    Args:
-        request (SummaryRequest): The source summary request
-        
-    Returns:
-        AIContentRequest: A new AI content request object initialized with values from the summary request
-    """
-    ai_request = AIContentRequest(
-        id=0,
-        content_type=AIContentType.SHORT_SUMMARY,
-        is_stream_response=StreamResponse.ALLOW if request.stream else StreamResponse.DENY,
-        query=_create_query_by_summary_request(request, AIContentType.SHORT_SUMMARY),
-        params=_create_params_by_summary_request(request),
-        request_hash="",
-        status=AIRequestStatus.START_REQ,
-        created=datetime.now(),
-        modified=datetime.now()
+    message: str = Field(
+        ...,
+        description="响应消息"
     )
-    ai_request.hash()
-    return ai_request
-
-def initialize_ai_request_by_question(request: QuestionRequest):
-    """
-    Initialize an AIContentRequest object from a QuestionRequest.
-    
-    Args:
-        request (QuestionRequest): The source question request
-        
-    Returns:
-        AIContentRequest: A new AI content request object initialized with values from the question request
-    """
-    ai_request = AIContentRequest(
-        id=0,
-        content_type=AIContentType.ASSOCIATED_QUESTION,
-        is_stream_response=StreamResponse.DENY,
-        query=_create_query_by_question_request(request),
-        params=_create_params_by_question_request(request),
-        request_hash="",
-        status=AIRequestStatus.START_REQ,
-        created=datetime.now(),
-        modified=datetime.now()
+    thread_uuid: str = Field(
+        ...,
+        description="话题UUID"
     )
-    ai_request.hash()
-    return ai_request
 
-def initialize_ai_content_response(request: SummaryRequest, ai_content_request_id: int):
-    """
-    Initialize an AIContentResponse object from a SummaryRequest.
-    
-    Args:
-        request (SummaryRequest): The source summary request
-        
-    Returns:
-        AIContentResponse: A new AI content response object initialized with default values
-    """
-    ai_response = AIContentResponse(
-        id=0,
-        ai_request_id=ai_content_request_id,
-        is_generating=0,
-        content="",
-        tokens={"generating": []},
-        usage={},
-        cache_hit_cnt=0,
-        status=AIResponseStatus.GENERATING,
-        created=datetime.now(),
-        modified=datetime.now()
+class DiscussPostRequest(BaseModel):
+    """发布讨论内容请求模型"""
+    thread_uuid: str = Field(
+        ...,
+        description="话题UUID"
     )
-    return ai_response
+    reply_uuid: str = Field(
+        ...,
+        description="回复UUID"
+    )
+    content: str = Field(
+        ...,
+        description="对话内容"
+    )
+    user_hash: str = Field(
+        ...,
+        description="用户hash"
+    )
+    user_id: int = Field(
+        ...,
+        description="用户ID"
+    )
 
-def _create_query_by_summary_request(request: SummaryRequest, content_type: AIContentType) -> str:
-    """
-    Create a query string based on the related type in the summary request.
-    
-    Args:
-        request (SummaryRequest): The summary request containing the related type
-        
-    Returns:
-        str: A query string appropriate for the related type
-    """
-    if content_type == AIContentType.SHORT_SUMMARY:
-        if request.related_type == RelatedType.CHANNEL:
-            return "请分析这个频道收录的这些文章的研究主题和科研成果，给首次来到这个频道的读者一个阅读指引"
-        elif request.related_type == RelatedType.COLUMN:
-            return "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
-        elif request.related_type == RelatedType.ARTICLE:
-            return "请分析这个文章的研究主题和科研成果，给首次来到这个文章的读者一个阅读指引"
-    elif content_type == AIContentType.QUESTIONS:
-        if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
-            return "这是一个关于{column_description}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
-        elif request.related_type == RelatedType.ARTICLE:
-            return "这是一个关于{article_description}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
-    
-    return ""
 
-def _create_params_by_summary_request(request: SummaryRequest) -> dict:
-    """
-    Create a parameters dictionary based on the summary request.
-    
-    Args:
-        request (SummaryRequest): The summary request containing related type and ID
-        
-    Returns:
-        dict: A dictionary containing the appropriate parameters based on the related type
-    """
-    if request.related_type == RelatedType.CHANNEL:
-        params = {
-            "channel_id": request.related_id
-        }
-    elif request.related_type == RelatedType.COLUMN:
-        params = {
-            "column_id": request.related_id
-        }
-    elif request.related_type == RelatedType.ARTICLE:
-        params = {
-            "article_id": request.related_id
-        }
-    params["ver"] = request.ver
-    params["term_ids"] = request.term_ids
-    return params
-
-def _create_query_by_question_request(request: QuestionRequest) -> str:
-    """
-    Create a query string based on the related type in the question request.
-    
-    Args:
-        request (QuestionRequest): The question request containing the related type
-        
-    Returns:
-        str: A query string appropriate for the related type
-    """
-    if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
-        return "这是一个关于{column_description}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
-    elif request.related_type == RelatedType.ARTICLE:
-        return "这是一个关于{article_description}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
-    
-    return ""
-
-def _create_params_by_question_request(request: QuestionRequest) -> dict:
-    """
-    Create a parameters dictionary based on the question request.
-    
-    Args:
-        request (QuestionRequest): The question request containing related type and ID
-        
-    Returns:
-        dict: A dictionary containing the appropriate parameters based on the related type
-    """
-    if request.related_type == RelatedType.CHANNEL:
-        params = {
-            "channel_id": request.related_id
-        }
-    elif request.related_type == RelatedType.COLUMN:
-        params = {
-            "column_id": request.related_id
-        }
-    elif request.related_type == RelatedType.ARTICLE:
-        params = {
-            "article_id": request.related_id
-        }
-    params["ver"] = request.ver
-    params["term_ids"] = request.term_ids
-    params["question_count"] = request.count
-    return params
-    
+class DiscussPostResponse(BaseModel):
+    """发布讨论内容响应模型"""
+    code: int = Field(
+        ...,
+        description="响应码：0-成功，非0-失败"
+    )
+    message: str = Field(
+        ...,
+        description="响应消息"
+    )
+    uuid: str = Field(
+        ...,
+        description="讨论UUID"
+    )
+    depth: int = Field(
+        ...,
+        description="深度"
+    )
