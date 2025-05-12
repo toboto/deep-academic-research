@@ -12,13 +12,19 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
 
 from deepsearcher import configuration
 from deepsearcher.configuration import Configuration, init_config
 from deepsearcher.api.routes import router
 from deepsearcher.api.models import ExceptionResponse
 from deepsearcher.tools.log import set_dev_mode, set_level
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    CONFIG_FILE_PATH: str = "yaml"
+
+    model_config = SettingsConfigDict(env_file=".env")
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,14 +35,18 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI application.
     Handles startup and shutdown events.
     """
-    logger.info("Initializing Rbase API...")
-    setattr(configuration, 'config', Configuration(
-        os.path.join(
+    s = Settings()
+    if os.path.exists(s.CONFIG_FILE_PATH):
+        config_file = s.CONFIG_FILE_PATH
+    else:
+        config_file = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
             "..",
-            "config.rbase.yaml"
+            s.CONFIG_FILE_PATH
         )
-    ))
+
+    logger.info("Initializing Rbase API...")
+    setattr(configuration, 'config', Configuration(config_file))
     # 初始化配置
     init_config(configuration.config)
     
@@ -157,7 +167,6 @@ async def general_exception_handler(request: Request, exc: Exception):
 # 当作为主程序运行时，使用配置文件中的设置启动服务器
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Rbase API")
-    parser.add_argument("--config", "-c", default="config.rbase.yaml", help="配置文件路径")
     parser.add_argument("--verbose", "-v", action="store_true", help="是否开启详细日志")
     args = parser.parse_args()
 
@@ -203,7 +212,6 @@ if __name__ == "__main__":
         "filename": log_file
     }
     
-    # uvicorn.run("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config) 
     uvicorn_config = uvicorn.Config("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config)
     server = uvicorn.Server(uvicorn_config)
     server.run()
