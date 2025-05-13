@@ -196,8 +196,12 @@ class Discuss(BaseModel):
         "",
         description="UUID"
     )
-    thread_id: int = Field(
+    relate_type: RelatedType = Field(
         ...,
+        description="关联类型"
+    )
+    thread_id: int = Field(
+        None,
         description="话题ID"
     )
     thread_uuid: str = Field(
@@ -205,7 +209,7 @@ class Discuss(BaseModel):
         description="话题UUID"
     )
     reply_id: int = Field(
-        0,
+        None,
         description="回复ID"
     )
     reply_uuid: str = Field(
@@ -233,7 +237,7 @@ class Discuss(BaseModel):
         description="角色"
     )
     user_id: int = Field(
-        0,
+        None,
         description="用户ID"
     )
     is_hidden: int = Field(
@@ -385,7 +389,7 @@ def _create_params_by_summary_request(request: SummaryRequest) -> dict:
             "article_id": request.related_id
         }
     params["ver"] = request.ver
-    params["term_ids"] = request.term_ids
+    params["term_tree_node_ids"] = request.term_tree_node_ids
     return params
 
 def _create_query_by_question_request(request: QuestionRequest) -> str:
