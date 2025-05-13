@@ -11,6 +11,20 @@ class ChatResponse(ABC):
         self.prompt_tokens = kwargs.get("prompt_tokens", 0)
         self.completion_tokens = kwargs.get("completion_tokens", 0)
 
+    def usage(self, offset: dict = {}) -> dict:
+        if offset == {}:
+            return {
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+                "total_tokens": self.total_tokens,
+            }
+        else:
+            return {
+                "prompt_tokens": self.prompt_tokens + offset.get("prompt_tokens", 0),
+                "completion_tokens": self.completion_tokens + offset.get("completion_tokens", 0),
+                "total_tokens": self.total_tokens + offset.get("total_tokens", 0),
+            }
+
     def __repr__(self) -> str:
         return f"ChatResponse(content={self.content}, total_tokens={self.total_tokens})"
 

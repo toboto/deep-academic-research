@@ -38,9 +38,11 @@ class OpenAI(BaseLLM):
             return ChatResponse(
                 content=completion.choices[0].message.content,
                 total_tokens=completion.usage.total_tokens,
+                prompt_tokens=completion.usage.prompt_tokens,
+                completion_tokens=completion.usage.completion_tokens,
             )
 
-    def stream_generator(self, messages: List[Dict]) -> Generator[object, None, None]:
+    def stream_generator(self, messages: List[Dict], ) -> Generator[object, None, None]:
         """
         使用流式模式调用API，直接返回原始的chunk对象
 
