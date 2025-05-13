@@ -7,6 +7,7 @@ from tqdm import tqdm
 from deepsearcher import configuration
 from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
 from deepsearcher.db.mysql_connection import get_mysql_connection, close_mysql_connection
+from deepsearcher.db.async_mysql_connection import get_mysql_pool
 from deepsearcher.loader.splitter import split_docs_to_chunks
 from deepsearcher.tools.log import warning, error
 
@@ -342,19 +343,6 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
     pdf_files = []
     try:
         with conn.cursor() as cursor:
-            # Query data from article_pdf_file table that meets the conditions, and ensure raw_article_id exists in article table
-            # Also ensure txt_file is not empty and ends with .md
-            # sql = """
-            # SELECT apf.id, apf.raw_article_id, apf.txt_file, 
-            #        a.title, a.authors, a.corresponding_authors,
-            #        a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate
-            # FROM article_pdf_file apf
-            # INNER JOIN article a ON apf.raw_article_id = a.id
-            # WHERE apf.user_id = 0 AND apf.status = 1 
-            # AND apf.txt_file IS NOT NULL 
-            # AND apf.txt_file LIKE '%%.md'
-            # ORDER BY apf.modified DESC LIMIT %s OFFSET %s
-            # """
             sql = """
             SELECT a.id, a.raw_article_id, a.txt_file, 
                    a.title, a.authors, a.corresponding_authors,
@@ -375,12 +363,226 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
     return [RbaseArticle(pdf) for pdf in pdf_files]
 
 
-def load_articles_by_channel(rbase_config: dict, channel_id: int, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
-    return load_from_rbase_db(rbase_config, offset, limit)
+async def load_articles_by_channel(channel_id: int, term_tree_node_ids: list[int], offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    """
+    Load article data from Rbase database by channel
+    
+    Args:
+        channel_id: Channel ID
+        term_tree_node_ids: List of term tree node IDs
+        offset: Query start position
+        limit: Query limit count
+        
+    Returns:
+        List of RbaseArticle objects
+    """
+    concept_id_lists = []
+    if term_tree_node_ids:
+        for term_tree_node_id in term_tree_node_ids:
+            concepts = await get_sub_node_concept_ids(channel_id, term_tree_node_id)
+            if concepts:
+                concept_id_lists.append(concepts)
+    
+    term_id_groups = []
+    if len(concept_id_lists) > 0:
+        for concept_ids in concept_id_lists:
+            term_id_groups.append(await get_concept_term_ids(concept_ids))
+    
+    return await load_articles_by_term_ids(term_id_groups, channel_id, offset, limit)
 
-def load_articles_by_column(rbase_config: dict, column_id: int, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
-    return load_from_rbase_db(rbase_config, offset, limit)
+async def load_articles_by_article_ids(article_ids: list[int], offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    """
+    Load article data from Rbase database by article IDs
+    
+    Args:
+        article_ids: List of article IDs
+        offset: Query start position
+        limit: Query limit count
 
-def load_articles_by_article_ids(rbase_config: dict, article_ids: list[int], offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
-    return load_from_rbase_db(rbase_config, offset, limit)
+    Returns:
+        List of RbaseArticle objects
+    """
+    return await load_articles_by_article_ids(article_ids, offset, limit)
 
+async def get_sub_node_concept_ids(base_id: int, term_tree_node_id: int) -> list[int]:
+    """
+    Get sub node concept id list from term_tree_node table
+    
+    Args:
+        base_id: Base ID
+        term_tree_node_id: Term tree node ID
+
+    Returns:
+        List of concept ids
+    """
+    node_ids = []
+    concept_ids = []
+    if base_id == 0 or term_tree_node_id == 0:
+        return concept_ids
+
+    node_ids.append(term_tree_node_id)
+    try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                for i in range(0, 1000000):
+                    if i >= len(node_ids):
+                        break
+                    term_tree_node_id = node_ids[i]
+                    # Get concept ids
+                    sql = """
+                    SELECT tn.node_concept_id FROM term_tree_node tn LEFT JOIN term_tree tr ON tn.tree_id = tr.id 
+                    WHERE tr.related_base_id=%s AND tn.id=%s
+                    """
+                    await cursor.execute(sql, (base_id, term_tree_node_id))
+                    result = await cursor.fetchall()
+                    if result:
+                        for row in result:
+                            concept_ids.append(row["node_concept_id"])
+
+                    # Get sub node ids
+                    sql = """
+                    SELECT tn.id FROM term_tree_node tn LEFT JOIN term_tree tr ON tn.tree_id = tr.id 
+                    WHERE tr.related_base_id=%s AND tn.parent_node_id=%s
+                    """
+                    await cursor.execute(sql, (base_id, term_tree_node_id))
+                    result = await cursor.fetchall()
+                    if result:
+                        for row in result:
+                            node_ids.append(row["id"])
+    except Exception as e:
+        raise Exception(f"Failed to get sub node ids: {e}")
+    
+    return concept_ids
+
+
+async def get_concept_term_ids(term_tree_node_concept_ids: list[int]) -> list[int]:
+    """
+    Get concept term id list from concept table
+    
+    Args:
+        term_tree_node_concept_ids: List of term tree node concept ids
+        
+    Returns:
+        List of concept term ids
+    """
+    if len(term_tree_node_concept_ids) == 0:
+        return []
+    try:
+        rts = []
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                # 使用参数化查询，为每个 ID 创建占位符
+                placeholders = ", ".join(["%s"] * len(term_tree_node_concept_ids))
+                sql = f"""
+                SELECT concept_term_id, concept_term_id2 FROM concept WHERE id IN ({placeholders})
+                """
+                await cursor.execute(sql, term_tree_node_concept_ids)
+                result = await cursor.fetchall()
+                for row in result:
+                    if row["concept_term_id2"]:
+                        rts.append(row["concept_term_id2"])
+                    elif row["concept_term_id"]:
+                        rts.append(row["concept_term_id"])
+
+                return rts
+    except Exception as e:
+        raise Exception(f"Failed to get concept term ids: {e}")
+
+
+async def load_articles_by_term_ids(term_id_groups: list[list[int]], base_id: int, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    """
+    Load article data from Rbase database
+    
+    Args:
+        term_id_groups: List of term IDs
+        base_id: Base ID
+        offset: Query start position
+        limit: Query limit count
+        
+    Returns:
+        List of RbaseArticle objects
+    """
+    # Get MySQL connection
+    rbase_db_config = configuration.config.rbase_settings.get("database")
+    
+    try:
+        pool = await get_mysql_pool(rbase_db_config)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                params = [base_id]
+                sql = """
+                SELECT a.id, a.raw_article_id, a.txt_file, 
+                    a.title, a.authors, a.corresponding_authors,
+                    a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate,
+                    a.summary as abstract, a.journal_name
+                FROM article a
+                WHERE a.status=1 AND a.base_id=%s 
+                """
+                if len(term_id_groups) > 0:
+                    for term_ids in term_id_groups:
+                        placeholders = ", ".join(["%s"] * len(term_ids))
+                        sql += f"\n AND EXISTS (SELECT 1 FROM article_label al WHERE al.article_id=a.id AND al.term_id IN ({placeholders}))"
+                        params.extend(term_ids)
+                
+                sql += "\n ORDER BY a.pubdate DESC LIMIT %s OFFSET %s"
+                params.append(limit)
+                params.append(offset)
+
+                from deepsearcher.tools.log import debug, dev_mode
+                if dev_mode:
+                    # 将SQL语句和参数拼接成完整的SQL语句，用于调试
+                    debug_sql = sql
+                    for param in params:
+                        # 替换第一个占位符 %s
+                        if isinstance(param, str):
+                            # 字符串类型需要加引号
+                            debug_sql = debug_sql.replace("%s", f"'{param}'", 1)
+                        else:
+                            # 数字类型直接替换
+                            debug_sql = debug_sql.replace("%s", str(param), 1)
+                    debug(f"执行SQL查询: {debug_sql}")
+
+                # Use parameterized query to avoid string formatting issues
+                await cursor.execute(sql, tuple(params))
+                pdf_files = await cursor.fetchall()
+    except Exception as e:
+        raise Exception(f"Failed to process database data: {e}")
+    
+    return [RbaseArticle(pdf) for pdf in pdf_files]
+
+async def load_articles_by_article_ids(article_ids: list[int], offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+    """
+    Load article data from Rbase database 
+
+    Args:
+        article_ids: List of article IDs
+        offset: Query start position
+        limit: Query limit count
+        
+    Returns:
+        List of RbaseArticle objects
+    """
+    # Get MySQL connection
+    rbase_db_config = configuration.config.rbase_settings.get("database")
+    
+    try:
+        pool = await get_mysql_pool(rbase_db_config)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                placeholders = ", ".join(["%s"] * len(article_ids))
+                sql = """
+                SELECT a.id, a.raw_article_id, a.txt_file, 
+                    a.title, a.authors, a.corresponding_authors,
+                    a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate,
+                    a.summary as abstract, a.journal_name
+                FROM article a
+                WHERE a.id IN ({placeholders})
+                """
+                await cursor.execute(sql, tuple(article_ids))
+                pdf_files = await cursor.fetchall()
+    except Exception as e:
+        raise Exception(f"Failed to process database data: {e}")
+    
+    return [RbaseArticle(pdf) for pdf in pdf_files]
