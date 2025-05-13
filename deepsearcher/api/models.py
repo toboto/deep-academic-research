@@ -30,8 +30,8 @@ class RelatedType(int, Enum):
 
 class DepressCache(int, Enum):
     """缓存抑制枚举"""
-    ENABLE = 0  # 启用缓存
-    DISABLE = 1 # 禁用缓存
+    ENABLE = 1  # 禁用缓存
+    DISABLE = 0 # 启用缓存
 
 
 class SummaryRequest(BaseModel):
@@ -44,7 +44,7 @@ class SummaryRequest(BaseModel):
         None,
         description="关联ID，可选"
     )
-    term_ids: Optional[List[int]] = Field(
+    term_tree_node_ids: Optional[List[int]] = Field(
         None,
         description="关键词ID列表，可选"
     )
@@ -248,3 +248,12 @@ class DiscussPostResponse(BaseModel):
         ...,
         description="深度"
     )
+
+class DiscussAIReplyRequest(BaseModel):
+    """
+    API Request for generating AI reply to discuss
+    """
+    thread_uuid: str = Field(..., description="UUID of the thread")
+    reply_uuid: str = Field(..., description="UUID of the discuss to reply to")
+    user_hash: str = Field(..., description="User hash")
+    user_id: int = Field(..., description="User ID")

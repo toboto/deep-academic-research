@@ -1,28 +1,41 @@
+"""
+Database operation utility module
+"""
+
 import json
 import hashlib
 from datetime import datetime
 from pydantic import BaseModel
-from deepsearcher.rbase.ai_models import AIContentResponse, AIContentRequest, AIRequestStatus, AIResponseStatus
 from deepsearcher import configuration
 from deepsearcher.db.async_mysql_connection import get_mysql_pool, close_mysql_pool
-from deepsearcher.rbase.ai_models import DiscussThread, RelatedType, Discuss
+from deepsearcher.tools import log
+from deepsearcher.rbase.ai_models import (
+    DiscussThread, 
+    RelatedType, 
+    Discuss, 
+    DiscussRole,
+    AIContentRequest, 
+    AIContentResponse, 
+    AIRequestStatus, 
+    AIResponseStatus
+)
 
 
 async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
     """
-    根据请求hash获取响应内容
+    Get response content by request hash
 
     Args:
-        request_hash: 请求hash值
+        request_hash: Request hash value
 
     Returns:
-        AIContentResponse: 响应内容对象，如果未找到则返回None
+        AIContentResponse: Response content object, returns None if not found
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                # 查询已完成的请求
+                # Query completed requests
                 request_sql = """
                 SELECT id FROM ai_content_request 
                 WHERE request_hash = %s AND status = %s
@@ -36,7 +49,7 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
                     
                 request_id = request_result["id"]
                 
-                # 查询对应的响应
+                # Query corresponding response
                 response_sql = """
                 SELECT * FROM ai_content_response 
                 WHERE ai_request_id = %s
@@ -48,19 +61,19 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
                 if not response_result:
                     return None
                     
-                # 处理双重编码的JSON字符串
+                # Handle double-encoded JSON strings
                 tokens_str = response_result["tokens"]
                 usage_str = response_result["usage"]
                 
-                # 第一次解析：将字符串转换为JSON字符串
+                # First parse: Convert string to JSON string
                 tokens_json = json.loads(tokens_str) if tokens_str else "{}"
                 usage_json = json.loads(usage_str) if usage_str else "{}"
                 
-                # 第二次解析：将JSON字符串转换为字典
+                # Second parse: Convert JSON string to dictionary
                 tokens_dict = json.loads(tokens_json) if isinstance(tokens_json, str) else tokens_json
                 usage_dict = json.loads(usage_json) if isinstance(usage_json, str) else usage_json
                     
-                # 构造响应对象
+                # Construct response object
                 return AIContentResponse(
                     id=response_result["id"],
                     ai_request_id=request_id,
@@ -79,13 +92,13 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
 
 async def save_request_to_db(request: AIContentRequest, modified: datetime = datetime.now()) -> int:
     """
-    保存请求到数据库
+    Save request to database
 
     Args:
-        request: AIContentRequest对象
+        request: AIContentRequest object
 
     Returns:
-        int: 插入记录的ID
+        int: Inserted record ID
     """
     if modified:
         request.modified = modified
@@ -94,7 +107,7 @@ async def save_request_to_db(request: AIContentRequest, modified: datetime = dat
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 if request.id == 0:
-                    # 插入请求记录
+                    # Insert request record
                     sql = """
                     INSERT INTO ai_content_request (
                         content_type, is_stream_response, query, params,
@@ -115,7 +128,7 @@ async def save_request_to_db(request: AIContentRequest, modified: datetime = dat
                     ))
                     return cursor.lastrowid
                 else:
-                    # 更新请求记录
+                    # Update request record
                     sql = """
                     UPDATE ai_content_request SET
                         status = %s,
@@ -134,10 +147,13 @@ async def save_request_to_db(request: AIContentRequest, modified: datetime = dat
 
 async def save_response_to_db(response: AIContentResponse, modified: datetime = datetime.now()) -> int:
     """
-    保存响应到数据库
+    Save response to database
 
     Args:
-        response: AIContentResponse对象
+        response: AIContentResponse object
+
+    Returns:
+        int: Inserted record ID
     """
     if modified:
         response.modified = modified
@@ -146,7 +162,7 @@ async def save_response_to_db(response: AIContentResponse, modified: datetime = 
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 if response.id == 0:
-                    # 插入响应记录
+                    # Insert response record
                     sql = """
                     INSERT INTO ai_content_response (
                         ai_request_id, is_generating, content, tokens, 
@@ -168,7 +184,7 @@ async def save_response_to_db(response: AIContentResponse, modified: datetime = 
                     ))
                     return cursor.lastrowid
                 else:
-                    # 更新响应记录
+                    # Update response record
                     sql = """
                     UPDATE ai_content_response SET
                         is_generating = %s,
@@ -197,14 +213,14 @@ async def save_response_to_db(response: AIContentResponse, modified: datetime = 
 
 async def get_discuss_thread_by_request_hash(request_hash: str, user_hash: str) -> DiscussThread:
     """
-    根据请求hash和用户hash获取讨论线程
+    Get discussion thread by request hash and user hash
 
     Args:
-        request_hash: 请求hash值
-        user_hash: 用户hash值
+        request_hash: Request hash value
+        user_hash: User hash value
 
     Returns:
-        DiscussThread: 讨论线程对象，如果未找到则返回None
+        DiscussThread: Discussion thread object, returns None if not found
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
@@ -225,13 +241,13 @@ async def get_discuss_thread_by_request_hash(request_hash: str, user_hash: str) 
 
 async def get_discuss_thread_by_id(thread_id: int) -> DiscussThread:
     """
-    根据ID获取讨论线程
+    Get discussion thread by ID
 
     Args:
-        thread_id: 讨论线程ID
+        thread_id: Discussion thread ID
 
     Returns:
-        DiscussThread: 讨论线程对象，如果未找到则返回None
+        DiscussThread: Discussion thread object, returns None if not found
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
@@ -252,73 +268,99 @@ async def get_discuss_thread_by_id(thread_id: int) -> DiscussThread:
 
 async def save_discuss_thread_to_db(discuss_thread: DiscussThread) -> int:
     """
-    保存讨论线程到数据库
+    Save discussion thread to database
 
     Args:
-        discuss_thread: DiscussThread对象
+        discuss_thread: DiscussThread object
 
     Returns:
-        int: 插入记录的ID
+        int: Inserted record ID
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                sql = """
-                INSERT INTO discuss_thread (uuid, related_type, params, request_hash, user_hash, user_id, depth, background, is_hidden, created, modified)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """
-                await cursor.execute(sql, (
-                    discuss_thread.uuid,
-                    discuss_thread.related_type.value,
-                    json.dumps(discuss_thread.params),
-                    discuss_thread.request_hash,
-                    discuss_thread.user_hash,
-                    discuss_thread.user_id,
-                    discuss_thread.depth,
-                    discuss_thread.background,
-                    discuss_thread.is_hidden,
-                    discuss_thread.created,
-                    discuss_thread.modified
-                ))
-                return cursor.lastrowid
+                if discuss_thread.id == 0:
+                    sql = """
+                    INSERT INTO discuss_thread (uuid, related_type, params, request_hash, user_hash, user_id, depth, background, is_hidden, created, modified)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    await cursor.execute(sql, (
+                        discuss_thread.uuid,
+                        discuss_thread.related_type.value,
+                        json.dumps(discuss_thread.params),
+                        discuss_thread.request_hash,
+                        discuss_thread.user_hash,
+                        discuss_thread.user_id,
+                        discuss_thread.depth,
+                        discuss_thread.background,
+                        discuss_thread.is_hidden,
+                        discuss_thread.created,
+                        discuss_thread.modified
+                    ))
+                    return cursor.lastrowid
+                else:
+                    sql = """
+                    UPDATE discuss_thread SET
+                        relate_type = %s,
+                        params = %s,
+                        request_hash = %s,
+                        user_hash = %s,
+                        user_id = %s,
+                        depth = %s,
+                        background = %s,
+                        is_hidden = %s,
+                    WHERE id = %s
+                    """
+                    await cursor.execute(sql, (
+                        discuss_thread.relate_type.value,
+                        json.dumps(discuss_thread.params),
+                        discuss_thread.request_hash,
+                        discuss_thread.user_hash,
+                        discuss_thread.user_id,
+                        discuss_thread.depth,
+                        discuss_thread.background,
+                        discuss_thread.is_hidden,
+                        discuss_thread.id
+                    ))
+                    return discuss_thread.id
     except Exception as e:
         raise Exception(f"Failed to save discuss thread to db: {e}")
 
 def get_request_hash(request: BaseModel) -> str:
     """
-    计算请求的hash值
+    Calculate request hash value
     
     Args:
-        request: 请求对象
+        request: Request object
         
     Returns:
-        str: 请求的hash值
+        str: Request hash value
     """
-    # 将请求对象转换为字典
+    # Convert request object to dictionary
     request_dict = request.model_dump()
     
-    # 移除不需要参与hash计算的字段
+    # Remove fields that should not participate in hash calculation
     if 'user_hash' in request_dict:
         del request_dict['user_hash']
     if 'user_id' in request_dict:
         del request_dict['user_id']
         
-    # 将字典转换为JSON字符串
+    # Convert dictionary to JSON string
     request_json = json.dumps(request_dict, sort_keys=True)
     
-    # 计算hash值
+    # Calculate hash value
     return hashlib.md5(request_json.encode()).hexdigest()
 
 async def get_discuss_thread_by_uuid(thread_uuid: str) -> DiscussThread:
     """
-    根据话题UUID获取讨论线程
+    Get discussion thread by topic UUID
     
     Args:
-        thread_uuid: 话题UUID
+        thread_uuid: Topic UUID
         
     Returns:
-        DiscussThread: 讨论线程对象，如果未找到则返回None
+        DiscussThread: Discussion thread object, returns None if not found
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
@@ -331,20 +373,21 @@ async def get_discuss_thread_by_uuid(thread_uuid: str) -> DiscussThread:
                 result = await cursor.fetchone()
                 if not result:
                     return None
+                result["related_type"] = RelatedType(result["related_type"])
                 result["params"] = json.loads(result["params"]) if result["params"] else {}
                 return DiscussThread(**result)
     except Exception as e:
-        raise Exception(f"获取讨论线程失败: {e}")
+        raise Exception(f"Failed to get discuss thread: {e}")
 
 async def get_discuss_by_uuid(uuid: str) -> Discuss:
     """
-    根据内容UUID获取讨论内容
+    Get discussion content by content UUID
     
     Args:
-        content_uuid: 内容UUID
+        content_uuid: Content UUID
         
     Returns:
-        DiscussContent: 讨论内容对象，如果未找到则返回None
+        DiscussContent: Discussion content object, returns None if not found
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
@@ -357,68 +400,97 @@ async def get_discuss_by_uuid(uuid: str) -> Discuss:
                 result = await cursor.fetchone()
                 if not result:
                     return None
+                result["related_type"] = RelatedType(result["related_type"])
                 result["tokens"] = json.loads(result["tokens"]) if result["tokens"] else {}
                 result["usage"] = json.loads(result["usage"]) if result["usage"] else {}
+                result["role"] = DiscussRole(result["role"])
                 result["status"] = AIResponseStatus(result["status"])
                 return Discuss(**result)
     except Exception as e:
-        raise Exception(f"获取讨论内容失败: {e}")
+        raise Exception(f"Failed to get discuss content: {e}")
 
 async def save_discuss_to_db(discuss: Discuss) -> int:
     """
-    保存讨论内容到数据库
+    Save discussion content to database
     
     Args:
-        discuss_content: 讨论内容对象
+        discuss_content: Discussion content object
         
     Returns:
-        int: 插入记录的ID
+        int: Inserted record ID
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                sql = """
-                INSERT INTO discuss (
-                    uuid, thread_id, thread_uuid, reply_id, reply_uuid, depth, content, 
-                    role, tokens, `usage`, user_id, is_hidden, `like`, trample, status, 
-                    created, modified
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                )
-                """
-                await cursor.execute(sql, (
-                    discuss.uuid,
-                    discuss.thread_id,
-                    discuss.thread_uuid,
-                    discuss.reply_id,
-                    discuss.reply_uuid,
-                    discuss.depth,
-                    discuss.content,
-                    discuss.role.value,
-                    json.dumps(discuss.tokens),
-                    json.dumps(discuss.usage),
-                    discuss.user_id,
-                    discuss.is_hidden,
-                    discuss.like,
-                    discuss.trample,
-                    discuss.status.value,
-                    discuss.created,
-                    discuss.modified
-                ))
-                return cursor.lastrowid
+                if discuss.id == 0:
+                    sql = """
+                    INSERT INTO discuss (
+                        uuid, relate_type, thread_id, thread_uuid, reply_id, reply_uuid, depth, 
+                        content, role, tokens, `usage`, user_id, is_hidden, `like`, trample, status, 
+                        created, modified
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    """
+                    await cursor.execute(sql, (
+                        discuss.uuid,
+                        discuss.relate_type.value,
+                        discuss.thread_id,
+                        discuss.thread_uuid,
+                        discuss.reply_id,
+                        discuss.reply_uuid,
+                        discuss.depth,
+                        discuss.content,
+                        discuss.role.value,
+                        json.dumps(discuss.tokens),
+                        json.dumps(discuss.usage),
+                        discuss.user_id,
+                        discuss.is_hidden,
+                        discuss.like,
+                        discuss.trample,
+                        discuss.status.value,
+                        discuss.created,
+                        discuss.modified
+                    ))
+                    return cursor.lastrowid
+                else:
+                    sql = """
+                    UPDATE discuss SET
+                        content = %s,
+                        role = %s,
+                        tokens = %s,
+                        `usage` = %s,
+                        is_hidden = %s,
+                        `like` = %s,
+                        trample = %s,
+                        status = %s,
+                    WHERE id = %s
+                    """
+                    await cursor.execute(sql, (
+                        discuss.content,
+                        discuss.role.value,
+                        json.dumps(discuss.tokens),
+                        json.dumps(discuss.usage),
+                        discuss.is_hidden,
+                        discuss.like,
+                        discuss.trample,
+                        discuss.status.value,
+                        discuss.id
+                    ))
+                    return discuss.id
     except Exception as e:
-        raise Exception(f"保存讨论内容失败: {e}")
+        raise Exception(f"Failed to save discuss content: {e}")
 
 async def get_discuss_by_thread_uuid(thread_uuid: str) -> list:
     """
-    根据话题UUID获取所有讨论内容
+    Get all discussion content by topic UUID
     
     Args:
-        thread_uuid: 话题UUID
+        thread_uuid: Topic UUID
         
     Returns:
-        list: 讨论内容对象列表
+        list: List of discussion content objects
     """
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
@@ -439,4 +511,42 @@ async def get_discuss_by_thread_uuid(thread_uuid: str) -> list:
                     rts.append(Discuss(**result))
                 return rts
     except Exception as e:
-        raise Exception(f"获取讨论内容列表失败: {e}")
+        raise Exception(f"Failed to get discuss content list: {e}")
+
+async def get_discuss_history(thread_id: int, reply_id: int, limit: int = 10) -> list:
+    """
+    Get discussion history records
+    
+    Args:
+        thread_id: Discussion topic ID
+        reply_id: Current reply ID
+        limit: Limit on number of history records to retrieve
+        
+    Returns:
+        list: History records list, sorted by time in ascending order, format as [{"role": "user|assistant", "content": "content"}]
+    """
+    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+    try:
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                # Get history records before current discussion node
+                sql = """
+                SELECT id, role, content FROM discuss 
+                WHERE thread_id = %s AND id <= %s AND is_hidden = 0 AND status = %s
+                ORDER BY id DESC LIMIT %s
+                """
+                await cursor.execute(sql, (thread_id, reply_id, AIResponseStatus.FINISHED.value, limit))
+                results = await cursor.fetchall()
+                
+                # Convert format and sort by time
+                history = []
+                for result in sorted(results, key=lambda x: x["id"]):
+                    history.append({
+                        "role": result["role"],
+                        "content": result["content"]
+                    })
+                
+                return history
+    except Exception as e:
+        log.error(f"Failed to get discussion history records: {e}")
+        return []

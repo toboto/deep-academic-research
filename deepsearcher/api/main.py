@@ -35,16 +35,7 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI application.
     Handles startup and shutdown events.
     """
-    s = Settings()
-    if os.path.exists(s.CONFIG_FILE_PATH):
-        config_file = s.CONFIG_FILE_PATH
-    else:
-        config_file = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-            "..",
-            s.CONFIG_FILE_PATH
-        )
-
+    config_file = get_config_file()
     logger.info("Initializing Rbase API...")
     setattr(configuration, 'config', Configuration(config_file))
     # 初始化配置
@@ -164,13 +155,26 @@ async def general_exception_handler(request: Request, exc: Exception):
         content=ExceptionResponse(code=500, message=str(exc)).model_dump()
     )
 
+def get_config_file():
+    s = Settings()
+    if os.path.exists(s.CONFIG_FILE_PATH):
+        config_file = s.CONFIG_FILE_PATH
+    else:
+        config_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+            "..",
+            s.CONFIG_FILE_PATH
+        )
+    return config_file
+
 # 当作为主程序运行时，使用配置文件中的设置启动服务器
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Rbase API")
     parser.add_argument("--verbose", "-v", action="store_true", help="是否开启详细日志")
     args = parser.parse_args()
 
-    host, port = get_server_config(args.config)
+    config_file = get_config_file()
+    host, port = get_server_config(config_file)
     logger.info(f"Starting server at {host}:{port}")
 
     # 读取日志文件配置
@@ -211,6 +215,10 @@ if __name__ == "__main__":
         "formatter": "default",
         "filename": log_file
     }
+
+    # 设置httpx和httpcore的日志级别为WARNING
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
     
     uvicorn_config = uvicorn.Config("deepsearcher.api.main:app", host=host, port=port, reload=True, log_config=log_config)
     server = uvicorn.Server(uvicorn_config)
