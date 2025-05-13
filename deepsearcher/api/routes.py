@@ -7,15 +7,17 @@ This module defines the FastAPI routes and their handler functions for the Rbase
 import asyncio
 import json
 import time
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Dict, Optional
 
 import random
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
 from deepsearcher import configuration
 
+from deepsearcher.db.async_mysql_connection import get_mysql_pool
 from deepsearcher.agent.summary_rag import SummaryRag
-from deepsearcher.rbase_db_loading import load_articles_by_channel, load_articles_by_column
+from deepsearcher.agent.discuss_agent import DiscussAgent
+from deepsearcher.rbase_db_loading import load_articles_by_channel, load_articles_by_article_ids
 from deepsearcher.api.rbase_util import (
     get_response_by_request_hash, 
     save_request_to_db, 
@@ -26,6 +28,7 @@ from deepsearcher.api.rbase_util import (
     get_discuss_thread_by_uuid,
     save_discuss_to_db,
     get_discuss_by_uuid,
+    get_discuss_history,
 )
 from deepsearcher.api.models import (
     RelatedType,
@@ -39,6 +42,7 @@ from deepsearcher.api.models import (
     DiscussCreateResponse,
     DiscussPostRequest,
     DiscussPostResponse,
+    DiscussAIReplyRequest,
 )
 
 from deepsearcher.rbase.ai_models import (
@@ -83,7 +87,10 @@ async def api_generate_summary(request: SummaryRequest):
     try:
         ai_request = initialize_ai_request_by_summary(request)
 
-        ai_response = await get_response_by_request_hash(ai_request.request_hash)
+        if request.depress_cache == DepressCache.DISABLE:
+            ai_response = await get_response_by_request_hash(ai_request.request_hash)
+        else:
+            ai_response = None
 
         if request.stream:
             if not ai_response:
@@ -148,38 +155,38 @@ async def api_generate_questions(request: QuestionRequest):
 
 @router.post(
     "/generate/discuss_create",
-    summary="创建讨论话题接口",
+    summary="Discussion Topic Creation API",
     description="""
-    创建新的讨论话题或返回已存在的讨论话题UUID。
+    Create a new discussion topic or return existing topic UUID.
     
-    - 支持作者、主题和论文相关类型
-    - 使用request_hash和user_hash检查是否存在相同话题
-    - 返回话题UUID
+    - Supports author, topic, and paper related types
+    - Uses request_hash and user_hash to check for existing topics
+    - Returns topic UUID
     """,
 )
 async def api_create_discuss(request: DiscussCreateRequest):
     """
-    创建讨论话题或返回已存在的讨论话题UUID。
+    Create a discussion topic or return existing topic UUID.
 
     Args:
-        request (DiscussCreateRequest): 创建讨论话题的请求参数
+        request (DiscussCreateRequest): Request parameters for creating discussion topic
 
     Returns:
-        DiscussCreateResponse: 包含话题UUID的响应
+        DiscussCreateResponse: Response containing topic UUID
     """
     try:
         discuss_thread = initialize_discuss_thread(request)
         result = await get_discuss_thread_by_request_hash(discuss_thread.request_hash, discuss_thread.user_hash)
         
         if result:
-            # 如果存在，直接返回uuid
+            # If exists, return UUID directly
             return DiscussCreateResponse(
                 code=0,
                 message="success",
                 thread_uuid=result.uuid
             )
         else:
-            # 如果不存在，创建新线程
+            # If not exists, create new thread
             await save_discuss_thread_to_db(discuss_thread)
             return DiscussCreateResponse(
                 code=0,
@@ -195,27 +202,27 @@ async def api_create_discuss(request: DiscussCreateRequest):
 
 @router.post(
     "/generate/discuss_post",
-    summary="发布讨论内容接口",
+    summary="Discussion Content Posting API",
     description="""
-    发布讨论内容到指定话题。
+    Post discussion content to specified topic.
     
-    - 指定话题UUID和回复UUID
-    - 发布内容必须提供用户hash和ID
-    - 返回成功或失败状态
+    - Specify topic UUID and reply UUID
+    - User hash and ID must be provided
+    - Returns success or failure status
     """,
 )
 async def api_post_discuss(request: DiscussPostRequest):
     """
-    发布讨论内容到指定话题。
+    Post discussion content to specified topic.
 
     Args:
-        request (DiscussPostRequest): 发布讨论内容的请求参数
+        request (DiscussPostRequest): Request parameters for posting discussion content
 
     Returns:
-        DiscussPostResponse: 发布结果的响应
+        DiscussPostResponse: Response containing posting result
     """
     try:
-        # 验证讨论话题是否存在
+        # Verify if discussion topic exists
         thread = await get_discuss_thread_by_uuid(request.thread_uuid)
         if not thread:
             return JSONResponse(
@@ -226,7 +233,7 @@ async def api_post_discuss(request: DiscussPostRequest):
                 ).model_dump()
             )
         
-        # 如果指定了回复UUID，验证回复对象是否存在
+        # If reply UUID is specified, verify if reply object exists
         if request.reply_uuid and request.reply_uuid != "":
             reply_discuss = await get_discuss_by_uuid(request.reply_uuid)
             if not reply_discuss:
@@ -240,7 +247,7 @@ async def api_post_discuss(request: DiscussPostRequest):
         else:
             reply_discuss = None
         
-        # 创建并保存讨论内容
+        # Create and save discussion content
         discuss = initialize_discuss_by_post_request(request, thread, reply_discuss)
         content_id = await save_discuss_to_db(discuss)
         if content_id:
@@ -255,6 +262,84 @@ async def api_post_discuss(request: DiscussPostRequest):
                 status_code=500,
                 content=ExceptionResponse(code=500, message="保存讨论内容失败").model_dump()
             )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content=ExceptionResponse(code=500, message=str(e)).model_dump()
+        )
+
+@router.post(
+    "/generate/ai_reply",
+    summary="AI Discussion Reply API",
+    description="""
+    Automatically generate AI reply based on user discussion content.
+    
+    - Supports streaming output
+    - Generates appropriate reply based on discussion topic and history
+    - Returns generated reply content UUID
+    """,
+)
+async def api_ai_reply_discuss(request: DiscussAIReplyRequest):
+    """
+    Generate AI reply for discussion content.
+
+    Args:
+        request (DiscussAIReplyRequest): AI reply discussion request
+
+    Returns:
+        StreamingResponse: Streaming response with AI generated reply content
+    """
+    try:
+        # 1. Get discussion topic data
+        thread = await get_discuss_thread_by_uuid(request.thread_uuid)
+        if not thread:
+            return JSONResponse(
+                status_code=400,
+                content=ExceptionResponse(
+                    code=400, 
+                    message=f"讨论话题不存在: {request.thread_uuid}"
+                ).model_dump()
+            )
+        
+        # 2. Get discussion content to reply to
+        reply_discuss = await get_discuss_by_uuid(request.reply_uuid)
+        if not reply_discuss:
+            return JSONResponse(
+                status_code=400,
+                content=ExceptionResponse(
+                    code=400, 
+                    message=f"回复对象不存在: {request.reply_uuid}"
+                ).model_dump()
+            )
+        
+        # Create AI reply discussion object
+        ai_discuss = Discuss(
+            uuid="",
+            thread_id=thread.id,
+            thread_uuid=thread.uuid,
+            reply_id=reply_discuss.id if reply_discuss else None,
+            reply_uuid=reply_discuss.uuid if reply_discuss else "",
+            depth=reply_discuss.depth + 1 if reply_discuss else 0,
+            content="",  # Content will be updated during streaming generation
+            role=DiscussRole.ASSISTANT,
+            tokens={},
+            usage={},
+            status=AIResponseStatus.GENERATING,
+            user_id=request.user_id,
+            created=time.time(),
+            modified=time.time(),
+        )
+        ai_discuss.create_uuid()
+        
+        # Save empty content, get ID, update content later
+        discuss_id = await save_discuss_to_db(ai_discuss)
+        ai_discuss.id = discuss_id
+        
+        # 3. Return streaming response
+        return StreamingResponse(
+            generate_ai_reply_stream(ai_discuss, thread, reply_discuss),
+            media_type="text/event-stream"
+        )
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -299,10 +384,13 @@ async def generate_summary_stream(rbase_config: dict, ai_request: AIContentReque
     response_id = await save_response_to_db(ai_response)
     ai_response.id = response_id
     
-    if related_type == RelatedType.CHANNEL:
-        articles = load_articles_by_channel(rbase_config, ai_request.params.get("channel_id", 0))
-    elif related_type == RelatedType.COLUMN:
-        articles = load_articles_by_column(rbase_config, ai_request.params.get("column_id", 0))
+    if related_type == RelatedType.CHANNEL or related_type == RelatedType.COLUMN:
+        articles = await load_articles_by_channel(
+            ai_request.params.get("channel_id", 0),
+            ai_request.params.get("term_tree_node_ids", []))
+    elif related_type == RelatedType.ARTICLE:
+        articles = await load_articles_by_article_ids(
+            ai_request.params.get("article_ids", []))
     else:
         articles = []
 
@@ -310,8 +398,8 @@ async def generate_summary_stream(rbase_config: dict, ai_request: AIContentReque
         reasoning_llm=configuration.reasoning_llm,
         writing_llm=configuration.writing_llm,
     )
-    # Send role message
 
+    # Send role message
     role_chunk = {
         "id": f"chatcmpl-{ai_response.id}",
         "object": "chat.completion.chunk",
@@ -441,7 +529,6 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
     Returns:
         str: The generated content
     """
-    rbase_config = configuration.config.rbase_settings
     request_id = await save_request_to_db(ai_request)
     ai_request.id = request_id
 
@@ -450,9 +537,13 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
     ai_response.id = response_id
 
     if related_type == RelatedType.CHANNEL:
-        articles = load_articles_by_channel(rbase_config, ai_request.params.get("channel_id", 0))
+        articles = await load_articles_by_channel(
+            ai_request.params.get("channel_id", 0), 
+            ai_request.params.get("term_tree_node_ids", []))
     elif related_type == RelatedType.COLUMN:
-        articles = load_articles_by_column(rbase_config, ai_request.params.get("column_id", 0))
+        articles = await load_articles_by_channel(
+            ai_request.params.get("channel_id", 0),
+            ai_request.params.get("term_tree_node_ids", []))
     else:
         articles = []
 
@@ -504,7 +595,7 @@ async def get_discuss_background(thread_id: int) -> str:
         ai_request = initialize_ai_request_by_summary(SummaryRequest(
             related_type=thread.related_type,
             related_id=related_id,
-            term_ids=thread.params.get("term_ids", None),
+            term_tree_node_ids=thread.params.get("term_ids", None),
             ver=thread.params.get("ver", 0),
             depress_cache=DepressCache.DISABLE,
             stream=False,
@@ -539,3 +630,198 @@ def initialize_discuss_by_post_request(request: DiscussPostRequest, thread: Disc
     )
     discuss.create_uuid()
     return discuss
+
+async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, reply_discuss: Discuss) -> AsyncGenerator[bytes, None]:
+    """
+    Generate streaming response for AI reply discussion content.
+
+    Args:
+        ai_discuss: AI reply discussion object
+        thread: Discussion topic
+        reply_discuss: Discussion content to reply to
+
+    Yields:
+        bytes: Streamed content chunks
+    """
+    try:
+        # Get discussion background information
+        background = await get_thread_background(thread)
+        
+        # Get history records (last 10)
+        history = await get_discuss_history(thread.id, reply_discuss.id, limit=10)
+        
+        # Create DiscussAgent instance
+        discuss_agent = DiscussAgent(
+            llm=configuration.writing_llm,
+            reasoning_llm=configuration.reasoning_llm,
+            translator=configuration.academic_translator,
+            embedding_model=configuration.embedding_model,
+            vector_db=configuration.vector_db,
+        )
+        
+        # Send role message
+        role_chunk = {
+            "id": f"chatcmpl-{ai_discuss.id}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "rbase-discuss-agent",
+            "choices": [{
+                "index": 0,
+                "delta": {"role": "assistant"},
+                "finish_reason": None
+            }]
+        }
+        yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
+        
+        # Update AI discussion status
+        ai_discuss.is_generating = 1
+        ai_discuss.tokens["generating"] = []
+        await save_discuss_to_db(ai_discuss)
+        
+        # Possible user action
+        user_action = "浏览学术内容"
+        
+        # Extract user query content
+        query = reply_discuss.content
+        
+        # Set request parameters (can be adjusted based on actual needs)
+        request_params = {}
+        
+        # Call DiscussAgent to generate reply
+        for chunk in discuss_agent.query_generator(
+            query=query,
+            user_action=user_action,
+            background=background,
+            history=history,
+            request_params=request_params,
+        ):
+            if len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                stop = chunk.choices[0].finish_reason == "stop"
+                
+                if hasattr(delta, "content") and delta.content is not None:
+                    # Update content
+                    ai_discuss.content += delta.content
+                    ai_discuss.tokens["generating"].append(delta.content)
+                    await save_discuss_to_db(ai_discuss)
+                    
+                    # Build response chunk
+                    content_chunk = {
+                        "id": f"chatcmpl-{ai_discuss.id}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "rbase-discuss-agent",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": delta.content},
+                            "finish_reason": None if not stop else "stop"
+                        }]
+                    }
+                    yield f"data: {json.dumps(content_chunk)}\n\n".encode('utf-8')
+        
+        # Update final status
+        ai_discuss.is_generating = 0
+        ai_discuss.tokens["generating"] = []
+        ai_discuss.status = AIResponseStatus.FINISHED
+        if hasattr(discuss_agent, "usage"):
+            ai_discuss.usage = discuss_agent.usage
+        await save_discuss_to_db(ai_discuss)
+        
+        # Send completion marker
+        yield "data: [DONE]\n\n".encode('utf-8')
+        
+    except Exception as e:
+        # Error handling
+        ai_discuss.content += f"\n\n生成回复时发生错误: {str(e)}"
+        ai_discuss.status = AIResponseStatus.ERROR
+        await save_discuss_to_db(ai_discuss)
+        
+        error_chunk = {
+            "id": f"chatcmpl-{ai_discuss.id}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "rbase-discuss-agent",
+            "choices": [{
+                "index": 0,
+                "delta": {"content": f"\n\n生成回复时发生错误: {str(e)}"},
+                "finish_reason": "stop"
+            }]
+        }
+        yield f"data: {json.dumps(error_chunk)}\n\n".encode('utf-8')
+        yield "data: [DONE]\n\n".encode('utf-8')
+
+async def get_thread_background(thread: DiscussThread) -> str:
+    """
+    Get background information for discussion thread.
+    
+    Get corresponding background information based on thread related type (channel, column, article).
+    
+    Args:
+        thread: Discussion thread object
+        
+    Returns:
+        str: Background information text
+    """
+    # If preset background exists, return directly
+    if hasattr(thread, "background") and thread.background:
+        return thread.background
+    
+    # Get background information based on related type
+    try:
+        if thread.related_type == RelatedType.CHANNEL or thread.related_type == RelatedType.COLUMN:
+            channel_id = thread.params.get("channel_id", 0)
+            if channel_id:
+                # Try to get channel information from cached AI summary
+                summary_request = SummaryRequest(
+                    related_type=RelatedType.CHANNEL,
+                    related_id=channel_id,
+                    term_tree_node_ids=thread.params.get("term_tree_node_ids", []),
+                    depress_cache=DepressCache.DISABLE,
+                    stream=False
+                )
+                ai_request = initialize_ai_request_by_summary(summary_request)
+                ai_response = await get_response_by_request_hash(ai_request.request_hash)
+                if ai_response and ai_response.content:
+                    return ai_response.content
+                
+                # Or get channel basic information directly from database
+                rbase_config = configuration.config.rbase_settings
+                pool = await get_mysql_pool(rbase_config.get("database"))
+                async with pool.acquire() as conn:
+                    async with conn.cursor() as cursor:
+                        sql = "SELECT id, name FROM base WHERE id = %s"
+                        await cursor.execute(sql, (channel_id,))
+                        result = await cursor.fetchone()
+                        if result:
+                            return f"频道: {result['name']}"
+        elif thread.related_type == RelatedType.ARTICLE:
+            article_id = thread.params.get("article_id", 0)
+            if article_id:
+                # Get article basic information from database
+                rbase_config = configuration.config.rbase_settings
+                pool = await get_mysql_pool(rbase_config.get("database"))
+                async with pool.acquire() as conn:
+                    async with conn.cursor() as cursor:
+                        sql = """
+                        SELECT title, abstract, journal_name, authors, pubdate
+                        FROM article WHERE id = %s
+                        """
+                        await cursor.execute(sql, (article_id,))
+                        result = await cursor.fetchone()
+                        if result:
+                            authors = result["authors"].split(",")
+                            if len(authors) > 3:
+                                authors = authors[:3] + ["et al."]
+                            pub_year = result["pubdate"].year if hasattr(result["pubdate"], "year") else "未知"
+                            
+                            return (
+                                f"文章标题: {result['title']}\n\n"
+                                f"作者: {', '.join(authors)}\n\n"
+                                f"期刊: {result['journal_name']} ({pub_year})\n\n"
+                                f"摘要: {result['abstract']}"
+                            )
+    except Exception as e:
+        raise Exception(f"获取讨论背景信息失败: {e}")
+    
+    # Return empty background by default
+    return ""
