@@ -105,6 +105,7 @@ class Milvus(BaseVectorDB):
                 element_type=DataType.INT64,
                 max_capacity=100,
             )
+            schema.add_field("base_ids", DataType.ARRAY, element_type=DataType.INT64, max_capacity=100)
             schema.add_field("impact_factor", DataType.FLOAT)
             schema.add_field("pubdate", DataType.INT64)
             schema.add_field("metadata", DataType.JSON, nullable=True)
@@ -124,6 +125,9 @@ class Milvus(BaseVectorDB):
                 field_name="corresponding_author_ids",
                 index_type="",
                 index_name="corresponding_author_ids_idx",
+            )
+            index_params.add_index(
+                field_name="base_ids", index_type="", index_name="base_ids_idx"
             )
             index_params.add_index(
                 field_name="impact_factor", index_type="", index_name="impact_factor_idx"
