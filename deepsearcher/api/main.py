@@ -23,8 +23,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     CONFIG_FILE_PATH: str = "yaml"
+    model_config = SettingsConfigDict(
+        env_file=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+    )
 
-    model_config = SettingsConfigDict(env_file=".env")
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -480,7 +480,7 @@ async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[by
     yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
     
     # 将文本均匀划分为30段
-    total_chunks = 30
+    total_chunks = 50
     text_length = len(text)
     chunk_size = max(1, text_length // total_chunks)
     chunks = []
