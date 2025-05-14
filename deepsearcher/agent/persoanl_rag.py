@@ -720,7 +720,6 @@ Summary: {article["summary"]}
         # Generate section content
         prompt = prompt_template.format(researcher_name=researcher_name, publications=publications)
 
-        log.color_print(f"<writing> Generating content for section '{section}'... </writing>")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
 
         return response.content, response.total_tokens
@@ -912,18 +911,26 @@ Summary: {article["summary"]}
                     continue
 
             # Generate initial section content
+            log.color_print(f"<composing> Generating content for section '{section}'... </composing>")
             section_content, content_tokens = self._generate_section_content(
                 section, author["ename"], articles
             )
             total_tokens += content_tokens
 
             # Generate questions for the section
+            log.color_print(f"<asking> Asking questions for section '{section}'... </asking>")
             questions = self._generate_questions(section, section_content)
 
             # Search for additional content based on questions
+            log.color_print(
+                "<answering> Searching for additional content based on questions... </answering>"
+            )
             additional_results = await self._search_for_questions(questions, author["id"])
 
             # Optimize section with additional findings
+            log.color_print(
+                f"<optimizing> Optimizing section '{section}' with additional findings... </optimizing>"
+            )
             optimized_title, optimized_content, optimize_tokens = self._optimize_section(
                 section, section_content, additional_results
             )
@@ -950,20 +957,24 @@ Summary: {article["summary"]}
             )
 
         # Compile and refine the final review
+        log.color_print("<rewriting> Compiling and refining the final review... </rewriting>")
         compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
         total_tokens += compile_tokens
 
         # Generate abstract and conclusion
+        log.color_print("<composing> Generating abstract and conclusion... </composing>")
         abstract, conclusion, abstract_tokens = self._generate_abstract_and_conclusion(
             english_topic, compiled_text
         )
         total_tokens += abstract_tokens
 
         # Reorganize references
+        log.color_print("<reorganizing> Reorganizing references... </reorganizing>")
         reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
 
         # If no references found in text, generate from articles
         if not references_text:
+            log.color_print("<composing> Generating references... </composing>")
             references_text = self._generate_references(articles)
 
         total_tokens += ref_tokens
@@ -988,9 +999,7 @@ Summary: {article["summary"]}
         for section, content in compiled_sections.items():
             section_title = self._translate_to_chinese(section, author_translate_dict)
             if section != "References":  # Don't translate references
-                log.color_print(
-                    f"<translating> Translating section '{section}' to Chinese... </translating>"
-                )
+                log.color_print(f"<translating> Translating section '{section}' to Chinese... </translating>")
                 chinese_sections[section_title] = self._translate_to_chinese(
                     content, author_translate_dict
                 )
@@ -1079,7 +1088,10 @@ Summary: {article["summary"]}
             # 确保不超过5个问题
             questions = questions[:5]
 
-            log.debug(f"Generated {len(questions)} questions for section '{section_title}'")
+            if self.verbose:
+                log.debug(f"Generated {len(questions)} questions for section '{section_title}'")
+                for i, question in enumerate(questions):
+                    log.debug(f"Question {i+1}: {question}")
             return questions
         except Exception as e:
             log.error(f"Failed to generate questions: {e}")
@@ -1100,24 +1112,18 @@ Summary: {article["summary"]}
         if not questions:
             return ""
 
-        log.color_print(
-            "<searching> Searching for additional content based on questions... </searching>"
-        )
-
         consumed_tokens = 0
         if self.route_collection:
             # Use CollectionRouter to select appropriate collections
             selected_collections, n_token_route = self.collection_router.invoke(query=questions[0])
             consumed_tokens += n_token_route
-            log.color_print(
-                f"<search> Collection router selected: {selected_collections} </search>"
-            )
+            if self.verbose:
+                log.debug(f"<search> Collection router selected: {selected_collections} </search>")
         else:
             # Use default collection
             selected_collections = [self.vector_db_collection]
-            log.color_print(
-                f"<search> Using provided collection: {self.vector_db_collection} </search>"
-            )
+            if self.verbose:
+                log.debug(f"<search> Using provided collection: {self.vector_db_collection} </search>")
 
         all_results = []
         for question in questions:
@@ -1145,6 +1151,8 @@ Summary: {article["summary"]}
         # 去重和合并搜索结果
         unique_results = deduplicate_results(all_results)
         formatted_results = self._format_chunk_texts(unique_results)
+        if self.verbose:
+            log.debug(f"Got {len(formatted_results)} formatted results")
 
         return formatted_results
 
@@ -1184,10 +1192,6 @@ Summary: {article["summary"]}
         """
         if not additional_findings:
             return section_title, section_content, 0
-
-        log.color_print(
-            f"<optimizing> Optimizing section '{section_title}' with additional findings... </optimizing>"
-        )
 
         prompt = SECTION_OPTIMIZATION_PROMPT.format(
             section_title=section_title,

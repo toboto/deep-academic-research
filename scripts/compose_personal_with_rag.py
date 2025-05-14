@@ -65,7 +65,7 @@ def main(
         rbase_settings=config.rbase_settings,
     )
 
-    log.color_print(f"开始生成研究者'{query}'的学术综述...\n")
+    log.color_print(f"开始生成研究者'{query}'的学术综述...")
     start_time = time.time()
 
     # 调用PersonalRAG生成综述
@@ -85,7 +85,7 @@ def main(
     time_spent = end_time - start_time
 
     # 显示统计信息
-    log.color_print("\n研究者学术综述生成完成！")
+    log.color_print("研究者学术综述生成完成！")
     log.color_print(f"用时: {time_spent:.2f}秒")
     log.color_print(f"消耗tokens: {tokens_used}")
 
@@ -104,7 +104,7 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="生成研究者学术综述")
     parser.add_argument("--verbose", "-v", action="store_true", help="输出详细日志")
-    parser.add_argument("--query", "-q", help="包含研究者姓名的查询")
+    parser.add_argument("--query", "-q", help="研究者姓名")
     parser.add_argument("--output", "-o", help="输出文件路径")
     parser.add_argument("--max-articles", "-m", type=int, default=50, help="最大处理文章数量")
     parser.add_argument(
@@ -120,17 +120,17 @@ if __name__ == "__main__":
         log.set_level(logging.INFO)
 
     # 默认查询为Nature杂志创始主编
-    query = args.query if args.query else "请为我写一份关于于君教授的科研综述"
+    query = args.query if args.query else "于君"
 
     # 生成输出文件名，包含时间戳
     timestamp = datetime.now().strftime("%m%d")
-    researcher = query.split()[-1] if len(query.split()) > 0 else "researcher"
 
     output_file = (
         args.output
         if args.output
-        else os.path.join(parent_dir, "outputs", f"{researcher}-personal-rag-{timestamp}.md")
+        else os.path.join(parent_dir, "outputs", f"{query}-personal-rag-{timestamp}.md")
     )
+    query = f"请为我写一份关于{query}教授的科研综述"
 
     main(
         query,
