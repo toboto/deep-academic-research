@@ -3,6 +3,7 @@ import json
 import uuid
 from enum import Enum
 from datetime import datetime
+from typing import Optional
 from pydantic import BaseModel, Field
 
 from deepsearcher.api.models import SummaryRequest, QuestionRequest, RelatedType, DiscussCreateRequest, DiscussPostRequest
@@ -269,7 +270,56 @@ class Discuss(BaseModel):
         self.uuid = str(uuid.uuid4())
         return self.uuid
 
-def initialize_ai_request_by_summary(request: SummaryRequest):
+
+class TermTreeNode(BaseModel):
+    """术语树节点模型"""
+    id: int = Field(
+        ...,
+        description="ID"
+    )
+    tree_id: int = Field(
+        ...,
+        description="树ID"
+    )
+    parent_node_id: int = Field(
+        ...,
+        description="父节点ID"
+    )
+    node_concept_name: str = Field(
+        ...,
+        description="节点概念名称"
+    )
+    node_concept_id: int = Field(
+        ...,
+        description="节点概念ID"
+    )
+    intro: Optional[str] = Field(
+        None,
+        description="介绍"
+    )
+    sequence: Optional[int] = Field(
+        0,
+        description="顺序"
+    )
+    children_count: Optional[int] = Field(
+        0,
+        description="子节点数量"
+    )
+    status: int = Field(
+        ...,
+        description="状态"
+    )
+    created: datetime = Field(
+        ...,
+        description="创建时间"
+    )
+    modified: datetime = Field(
+        ...,
+        description="更新时间"
+    )
+    
+    
+def initialize_ai_request_by_summary(request: SummaryRequest, metadata: dict = {}):
     """
     Initialize an AIContentRequest object from a SummaryRequest.
     
@@ -283,7 +333,7 @@ def initialize_ai_request_by_summary(request: SummaryRequest):
         id=0,
         content_type=AIContentType.SHORT_SUMMARY,
         is_stream_response=StreamResponse.ALLOW if request.stream else StreamResponse.DENY,
-        query=_create_query_by_summary_request(request, AIContentType.SHORT_SUMMARY),
+        query=_create_query_by_summary_request(request, AIContentType.SHORT_SUMMARY, metadata),
         params=_create_params_by_summary_request(request),
         request_hash="",
         status=AIRequestStatus.START_REQ,
@@ -293,7 +343,7 @@ def initialize_ai_request_by_summary(request: SummaryRequest):
     ai_request.hash()
     return ai_request
 
-def initialize_ai_request_by_question(request: QuestionRequest):
+def initialize_ai_request_by_question(request: QuestionRequest, metadata: dict = {}):
     """
     Initialize an AIContentRequest object from a QuestionRequest.
     
@@ -307,7 +357,7 @@ def initialize_ai_request_by_question(request: QuestionRequest):
         id=0,
         content_type=AIContentType.ASSOCIATED_QUESTION,
         is_stream_response=StreamResponse.DENY,
-        query=_create_query_by_question_request(request),
+        query=_create_query_by_question_request(request, metadata),
         params=_create_params_by_question_request(request),
         request_hash="",
         status=AIRequestStatus.START_REQ,
@@ -341,7 +391,7 @@ def initialize_ai_content_response(request: SummaryRequest, ai_content_request_i
     )
     return ai_response
 
-def _create_query_by_summary_request(request: SummaryRequest, content_type: AIContentType) -> str:
+def _create_query_by_summary_request(request: SummaryRequest, content_type: AIContentType, metadata: dict = {}) -> str:
     """
     Create a query string based on the related type in the summary request.
     
@@ -351,18 +401,21 @@ def _create_query_by_summary_request(request: SummaryRequest, content_type: AICo
     Returns:
         str: A query string appropriate for the related type
     """
-    if content_type == AIContentType.SHORT_SUMMARY:
-        if request.related_type == RelatedType.CHANNEL:
-            return "请分析这个频道收录的这些文章的研究主题和科研成果，给首次来到这个频道的读者一个阅读指引"
-        elif request.related_type == RelatedType.COLUMN:
+    if request.related_type == RelatedType.CHANNEL:
+        if metadata.get('column_description'):
+            return f"这是一个有关于{metadata.get('column_description')}的栏目，请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+        else:
             return "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
-        elif request.related_type == RelatedType.ARTICLE:
+    elif request.related_type == RelatedType.COLUMN:
+        if metadata.get('column_description'):
+            return f"这是一个有关于{metadata.get('column_description')}的栏目，请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+        else:
+            return "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+    elif request.related_type == RelatedType.ARTICLE:
+        if metadata.get('article_description'):
+            return f"这是一个有关于{metadata.get('article_description')}的文章，请分析这个文章的研究主题和科研成果，给首次来到这个文章的读者一个阅读指引"
+        else:
             return "请分析这个文章的研究主题和科研成果，给首次来到这个文章的读者一个阅读指引"
-    elif content_type == AIContentType.QUESTIONS:
-        if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
-            return "这是一个关于{column_description}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
-        elif request.related_type == RelatedType.ARTICLE:
-            return "这是一个关于{article_description}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
     
     return ""
 
@@ -392,7 +445,7 @@ def _create_params_by_summary_request(request: SummaryRequest) -> dict:
     params["term_tree_node_ids"] = request.term_tree_node_ids
     return params
 
-def _create_query_by_question_request(request: QuestionRequest) -> str:
+def _create_query_by_question_request(request: QuestionRequest, metadata: dict = {}) -> str:
     """
     Create a query string based on the related type in the question request.
     
@@ -403,9 +456,15 @@ def _create_query_by_question_request(request: QuestionRequest) -> str:
         str: A query string appropriate for the related type
     """
     if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
-        return "这是一个关于{column_description}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
+        if metadata.get('column_description'):
+            return f"这是一个关于{metadata.get('column_description')}的栏目，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
+        else:
+            return "请根据栏目包含的文献内容提出用户可能会关心的科研问题"
     elif request.related_type == RelatedType.ARTICLE:
-        return "这是一个关于{article_description}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
+        if metadata.get('article_description'):
+            return f"这是一个关于{metadata.get('article_description')}的文章，请根据文章的摘要提出用户可能会关心的科研问题"
+        else:
+            return "请根据文章的摘要提出用户可能会关心的科研问题"
     
     return ""
 
@@ -432,7 +491,7 @@ def _create_params_by_question_request(request: QuestionRequest) -> dict:
             "article_id": request.related_id
         }
     params["ver"] = request.ver
-    params["term_ids"] = request.term_ids
+    params["term_tree_node_ids"] = request.term_tree_node_ids
     params["question_count"] = request.count
     return params
 

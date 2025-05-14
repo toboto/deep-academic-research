@@ -29,6 +29,7 @@ from deepsearcher.api.rbase_util import (
     save_discuss_to_db,
     get_discuss_by_uuid,
     get_discuss_history,
+    get_term_tree_nodes,
 )
 from deepsearcher.api.models import (
     RelatedType,
@@ -88,7 +89,8 @@ async def api_generate_summary(request: SummaryRequest):
         HTTPException: When request parameters are invalid or processing fails
     """
     try:
-        ai_request = initialize_ai_request_by_summary(request)
+        metadata = await build_term_tree_node_metadata(request.term_tree_node_ids)
+        ai_request = initialize_ai_request_by_summary(request, metadata)
 
         if request.depress_cache == DepressCache.DISABLE:
             ai_response = await get_response_by_request_hash(ai_request.request_hash)
@@ -141,8 +143,13 @@ async def api_generate_questions(request: QuestionRequest):
         HTTPException: When request parameters are invalid or processing fails
     """
     try:
-        ai_request = initialize_ai_request_by_question(request)
-        ai_response = await get_response_by_request_hash(ai_request.request_hash)
+        metadata = await build_term_tree_node_metadata(request.term_tree_node_ids)
+        ai_request = initialize_ai_request_by_question(request, metadata)
+        if request.depress_cache == DepressCache.DISABLE:
+            ai_response = await get_response_by_request_hash(ai_request.request_hash)
+        else:
+            ai_response = None
+
         question_response = QuestionResponse(code=0, message="success")
         if not ai_response:
             summary = await generate_ai_content(ai_request, request.related_type) 
@@ -572,9 +579,9 @@ async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[by
     }
     yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
     
-    # 将文本均匀划分为30段
-    total_chunks = 50
+    # 将文本均匀划分为60段
     text_length = len(text)
+    total_chunks = text_length // 5
     chunk_size = max(1, text_length // total_chunks)
     chunks = []
     
@@ -593,7 +600,7 @@ async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[by
     
     # 发送每一段内容
     for i, chunk in enumerate(chunks):
-        await asyncio.sleep(random.uniform(0.1, 0.4))  # random delay
+        await asyncio.sleep(random.uniform(0.1, 0.2))  # random delay
         content_chunk = {
             "id": f"chatcmpl-{response_id}",
             "object": "chat.completion.chunk",
@@ -685,14 +692,15 @@ async def get_discuss_background(thread_id: int) -> str:
         else:
             related_id = 0
  
+        metadata = await build_term_tree_node_metadata(thread.params.get("term_tree_node_ids", None))
         ai_request = initialize_ai_request_by_summary(SummaryRequest(
             related_type=thread.related_type,
             related_id=related_id,
-            term_tree_node_ids=thread.params.get("term_ids", None),
+            term_tree_node_ids=thread.params.get("term_tree_node_ids", None),
             ver=thread.params.get("ver", 0),
             depress_cache=DepressCache.DISABLE,
             stream=False,
-        ))
+        ), metadata)
         ai_response = await get_response_by_request_hash(ai_request.hash)
         if ai_response:
             return ai_response.content
@@ -872,7 +880,8 @@ async def get_thread_background(thread: DiscussThread) -> str:
                     depress_cache=DepressCache.DISABLE,
                     stream=False
                 )
-                ai_request = initialize_ai_request_by_summary(summary_request)
+                metadata = await build_term_tree_node_metadata(summary_request.term_tree_node_ids)
+                ai_request = initialize_ai_request_by_summary(summary_request, metadata)
                 ai_response = await get_response_by_request_hash(ai_request.request_hash)
                 if ai_response and ai_response.content:
                     return ai_response.content
@@ -918,3 +927,14 @@ async def get_thread_background(thread: DiscussThread) -> str:
     
     # Return empty background by default
     return ""
+
+async def build_term_tree_node_metadata(term_tree_node_ids: List[int]) -> dict:
+    """
+    Build metadata for term tree nodes.
+    """
+    term_tree_nodes = await get_term_tree_nodes(term_tree_node_ids)
+    metadata = {"concepts": []}
+    for node in term_tree_nodes:
+        metadata["concepts"].append(node.node_concept_name)
+    metadata["column_description"] = "、".join(metadata["concepts"])
+    return metadata

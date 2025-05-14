@@ -17,7 +17,8 @@ from deepsearcher.rbase.ai_models import (
     AIContentRequest, 
     AIContentResponse, 
     AIRequestStatus, 
-    AIResponseStatus
+    AIResponseStatus,
+    TermTreeNode
 )
 
 
@@ -550,3 +551,26 @@ async def get_discuss_history(thread_id: int, reply_id: int, limit: int = 10) ->
     except Exception as e:
         log.error(f"Failed to get discussion history records: {e}")
         return []
+
+
+async def get_term_tree_nodes(term_tree_node_ids: list[int]) -> list[TermTreeNode]:
+    """
+    Get term tree nodes
+    """
+    if not term_tree_node_ids:
+        return []
+
+    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+    try:
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                placeholders = ', '.join(['%s'] * len(term_tree_node_ids))
+                sql = """
+                SELECT * FROM term_tree_node WHERE id IN ({placeholders})
+                """
+                sql = sql.format(placeholders=placeholders)
+                await cursor.execute(sql, term_tree_node_ids)
+                results = await cursor.fetchall()
+                return [TermTreeNode(**result) for result in results]
+    except Exception as e:
+        raise Exception(f"Failed to get term tree nodes: {e}")

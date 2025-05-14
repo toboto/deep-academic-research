@@ -124,7 +124,7 @@ class QuestionRequest(BaseModel):
         None,
         description="关联ID，可选"
     )
-    term_ids: Optional[List[int]] = Field(
+    term_tree_node_ids: Optional[List[int]] = Field(
         None,
         description="关键词ID列表，可选"
     )
