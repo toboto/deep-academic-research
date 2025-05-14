@@ -44,8 +44,17 @@ dev_formatter = ColoredFormatter(
     "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
 )
 dev_handler = logging.StreamHandler()
+# set console output formatter
 dev_handler.setFormatter(dev_formatter)
 dev_logger.addHandler(dev_handler)
+
+# set file output formatter
+log_file = os.environ.get("RBASE_LOG_FILE", "")
+if log_file:
+    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s")
+    file_handler.setFormatter(file_formatter)
+    dev_logger.addHandler(file_handler)
 dev_logger.setLevel(logging.INFO)
 dev_logger.propagate = False
 
@@ -53,6 +62,8 @@ progress_logger = logging.getLogger("progress")
 progress_handler = logging.StreamHandler()
 progress_handler.setFormatter(ColoredFormatter("%(message)s"))
 progress_logger.addHandler(progress_handler)
+if log_file:
+    progress_logger.addHandler(file_handler)
 progress_logger.setLevel(logging.INFO)
 progress_logger.propagate = False
 
