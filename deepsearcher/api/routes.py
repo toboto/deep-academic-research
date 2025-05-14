@@ -7,7 +7,7 @@ This module defines the FastAPI routes and their handler functions for the Rbase
 import asyncio
 import json
 import time
-from typing import AsyncGenerator, List, Dict, Optional
+from typing import AsyncGenerator, List
 
 import random
 from fastapi import APIRouter
@@ -457,13 +457,12 @@ def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedTyp
     Returns:
         StreamingResponse: The streaming response object
     """
-    rbase_config = configuration.config.rbase_settings
     
-    return StreamingResponse(generate_summary_stream(rbase_config, ai_request, related_type), 
+    return StreamingResponse(generate_summary_stream(ai_request, related_type), 
                              media_type="text/event-stream")
 
     
-async def generate_summary_stream(rbase_config: dict, ai_request: AIContentRequest, related_type: RelatedType) -> AsyncGenerator[bytes, None]:
+async def generate_summary_stream(ai_request: AIContentRequest, related_type: RelatedType) -> AsyncGenerator[bytes, None]:
     """
     Generate a streaming response for summary content.
 
