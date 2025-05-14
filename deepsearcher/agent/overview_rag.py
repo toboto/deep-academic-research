@@ -434,7 +434,7 @@ class OverviewRAG(RAGAgent):
             Tuple of (retrieved results, tokens used)
         """
         log.color_print(
-            f"<search> Searching for section '{section}' with query: '{query}' </search>\n"
+            f"<search> Searching for section '{section}' with query: '{query}' </search>"
         )
 
         query_vector = self.embedding_model.embed_query(query)
@@ -446,7 +446,7 @@ class OverviewRAG(RAGAgent):
             selected_collections, n_token_route = self.collection_router.invoke(query=query)
             consumed_tokens += n_token_route
             log.color_print(
-                f"<search> Collection router selected: {selected_collections} </search>\n"
+                f"<search> Collection router selected: {selected_collections} </search>"
             )
         else:
             # Use default collection
@@ -470,7 +470,7 @@ class OverviewRAG(RAGAgent):
 
             if not retrieved_results or len(retrieved_results) == 0:
                 log.color_print(
-                    f"<search> No relevant document chunks found in '{collection}'! </search>\n"
+                    f"<search> No relevant document chunks found in '{collection}'! </search>"
                 )
                 continue
 
@@ -500,7 +500,7 @@ class OverviewRAG(RAGAgent):
 
             if len(accepted_results) > 0:
                 log.color_print(
-                    f"<search> Accepted {len(accepted_results)} document chunks from '{collection}' </search>\n"
+                    f"<search> Accepted {len(accepted_results)} document chunks from '{collection}' </search>"
                 )
 
         # Deduplicate results
@@ -724,14 +724,14 @@ class OverviewRAG(RAGAgent):
         topic_language = self._detect_language(topic)
         if topic_language in ["zh", "mixed"]:
             log.color_print(
-                f"<Step {step}> Translating topic from {topic_language} to English... </Step {step}>\n"
+                f"<Step {step}> Translating topic from {topic_language} to English... </Step {step}>"
             )
             step += 1
             english_topic = self._translate_to_english(topic)
         else:
             english_topic = topic
 
-        log.color_print(f"<Step {step}> Generating overview article structure for: {english_topic} </Step {step}>\n")
+        log.color_print(f"<Step {step}> Generating overview article structure for: {english_topic} </Step {step}>")
         step += 1
 
         # Generate section queries
@@ -741,7 +741,7 @@ class OverviewRAG(RAGAgent):
         english_sections = {}
         total_tokens = 0
 
-        log.color_print(f"<Step {step}> Search related contents for each section. </Step {step}>\n")
+        log.color_print(f"<Step {step}> Search related contents for each section. </Step {step}>")
         step += 1
         for section in self.sections:
             if section not in section_queries:
@@ -772,7 +772,7 @@ class OverviewRAG(RAGAgent):
 
             if len(retrieved_results) > 0:
                 # Generate section content
-                log.color_print(f"<writting> Generating content for section '{section}'... </writting>\n")
+                log.color_print(f"<writting> Generating content for section '{section}'... </writting>")
                 section_content, content_tokens = self._generate_section_content(
                     section, english_topic, retrieved_results
                 )
@@ -790,13 +790,13 @@ class OverviewRAG(RAGAgent):
                 full_text += f"## {section}\n\n{english_sections[section]}\n\n"
 
         # Compile and refine the final review
-        log.color_print(f"<Step {step}> Compiling and refining the final review... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Compiling and refining the final review... </Step {step}>")
         step += 1
         compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
         total_tokens += compile_tokens
 
         # Generate abstract and conclusion
-        log.color_print(f"<Step {step}> Generating abstract and conclusion... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Generating abstract and conclusion... </Step {step}>")
         step += 1
         abstract, conclusion, abstract_tokens = self._generate_abstract_and_conclusion(
             english_topic, compiled_text
@@ -804,7 +804,7 @@ class OverviewRAG(RAGAgent):
         total_tokens += abstract_tokens
 
         # Reorganize references and generate reference list
-        log.color_print(f"<Step {step}> Reorganizing references... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Reorganizing references... </Step {step}>")
         step += 1
         reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
         total_tokens += ref_tokens
@@ -825,7 +825,7 @@ class OverviewRAG(RAGAgent):
         compiled_sections["References"] = references_text
 
         # Translate each section to Chinese
-        log.color_print(f"<Step {step}> Translating sections to Chinese... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Translating sections to Chinese... </Step {step}>")
         chinese_sections = {}
         for section, content in compiled_sections.items():
             if section != "References":  # Don't translate references

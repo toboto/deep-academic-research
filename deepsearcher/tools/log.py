@@ -60,7 +60,7 @@ dev_logger.propagate = False
 
 progress_logger = logging.getLogger("progress")
 progress_handler = logging.StreamHandler()
-progress_handler.setFormatter(ColoredFormatter("%(message)s"))
+progress_handler.setFormatter(ColoredFormatter("\n%(message)s"))
 progress_logger.addHandler(progress_handler)
 if log_file:
     progress_logger.addHandler(file_handler)
@@ -167,9 +167,23 @@ def critical(message):
 
 def color_print(message, **kwargs):
     """Print colored information"""
-    progress_logger.info(message)
+    caller = inspect.currentframe().f_back
+    progress_logger.info(
+        message,
+        extra={
+            "custom_filename": os.path.basename(caller.f_code.co_filename),
+            "custom_lineno": caller.f_lineno,
+        },
+    )
 
 
 def color_print_debug(message, **kwargs):
     """Print colored debug information"""
-    progress_logger.debug(message)
+    caller = inspect.currentframe().f_back
+    progress_logger.debug(
+        message,
+        extra={
+            "custom_filename": os.path.basename(caller.f_code.co_filename),
+            "custom_lineno": caller.f_lineno,
+        },
+    )

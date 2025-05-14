@@ -49,7 +49,7 @@ def main(
     configuration.config = config
     init_config(config)
 
-    log.color_print(f"开始生成主题为'{query}'的科研文章...\n")
+    log.color_print(f"开始生成主题为'{query}'的科研文章...")
     start_time = time.time()
 
     # 调用OverviewRAG生成综述
@@ -81,7 +81,7 @@ def main(
     time_spent = end_time - start_time
 
     # 显示统计信息
-    log.color_print("\n科研文章生成完成！")
+    log.color_print("科研文章生成完成！")
     log.color_print(f"用时: {time_spent:.2f}秒")
     log.color_print(f"消耗tokens: {tokens_used}")
 
