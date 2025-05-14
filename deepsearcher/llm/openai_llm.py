@@ -78,6 +78,7 @@ class OpenAI(BaseLLM):
         prompt_tokens = 0
         completion_tokens = 0
         is_answering = False  # 标记是否已经从推理过程转为回答过程
+        is_reasoning = False
 
         # 使用stream_generator处理流式响应
         for chunk in self.stream_generator(messages):
@@ -87,7 +88,10 @@ class OpenAI(BaseLLM):
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
                     reasoning_content += delta.reasoning_content
                     if self.verbose:
-                        print(".", end="")
+                        if not is_reasoning:
+                            is_reasoning = True
+                            log.debug("--- Start reasoning ---")
+                        print(delta.reasoning_content, end="")
                 # 处理回答内容
                 elif hasattr(delta, "content") and delta.content is not None:
                     # 标记开始回答
@@ -95,11 +99,11 @@ class OpenAI(BaseLLM):
                         is_answering = True
                         if self.verbose:
                             print("\n")
-                            log.debug("--- 开始回答 ---")
+                            log.debug("--- Start answering ---")
 
                     collected_content += delta.content
                     if self.verbose:
-                        print(".", end="")
+                        print(delta.content, end="")
 
             # 如果有token信息，累加
             if hasattr(chunk, "usage") and chunk.usage:
@@ -110,13 +114,8 @@ class OpenAI(BaseLLM):
         # 最终的回答内容
         final_content = collected_content
 
-        # 如果存在推理内容，并且启用了详细日志，则打印推理内容
-        if reasoning_content and self.verbose:
-            print("\n")
-            log.debug(f"--- 完整推理过程 ---\n{reasoning_content}")
         if self.verbose:
             print("\n")
-            log.debug(f"--- 完整回答 ---\n{final_content}")
 
         return ChatResponse(
             content=final_content,

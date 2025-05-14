@@ -436,13 +436,10 @@ class OverviewRAG(RAGAgent):
         else:
             # Use default collection
             selected_collections = [self.vector_db_collection]
-            log.color_print("<search> Using default collection </search>\n")
 
         accepted_results = []
 
         for collection in selected_collections:
-            log.color_print(f"<search> Searching in [{collection}]... </search>\n")
-
             # Retrieve results from vector database
             retrieved_results = self.vector_db.search_data(
                 collection=collection,
@@ -535,7 +532,6 @@ class OverviewRAG(RAGAgent):
             section_name=section, topic=topic, retrieved_content=retrieved_content
         )
 
-        log.color_print(f"<writting> Generating content for section '{section}'... </writting>\n")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
 
         return response.content, response.total_tokens
@@ -558,7 +554,6 @@ class OverviewRAG(RAGAgent):
         """
         prompt = COMPILE_REVIEW_PROMPT.format(topic=topic, draft_text=draft_text)
 
-        log.color_print("<writting> Compiling and refining the final review... </writting>\n")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
 
         return response.content, response.total_tokens
@@ -578,7 +573,6 @@ class OverviewRAG(RAGAgent):
         """
         prompt = ABSTRACT_CONCLUSION_PROMPT.format(topic=topic, review_content=review_content)
 
-        log.color_print("<writting> Generating abstract and conclusion... </writting>\n")
         response = self.reasoning_llm.chat([{"role": "user", "content": prompt}])
 
         # Parse the response to extract abstract and conclusion
@@ -607,7 +601,6 @@ class OverviewRAG(RAGAgent):
         Returns:
             Tuple of (reorganized text, reference list, tokens used)
         """
-        log.color_print("<optimizing> Reorganizing references... </optimizing>\n")
         import re
 
         # First, convert multiple citations in a single bracket to separate citations
@@ -690,17 +683,20 @@ class OverviewRAG(RAGAgent):
         Returns:
             Tuple of (compiled English sections, Chinese translated sections, total tokens used)
         """
+        step = 1
         # Detect language and translate if needed
         topic_language = self._detect_language(topic)
         if topic_language in ["zh", "mixed"]:
             log.color_print(
-                f"<translating> Translating topic from {topic_language} to English... </translating>\n"
+                f"<Step {step}> Translating topic from {topic_language} to English... </Step {step}>\n"
             )
+            step += 1
             english_topic = self._translate_to_english(topic)
         else:
             english_topic = topic
 
-        log.color_print(f"<query> Generating overview for: {english_topic} </query>\n")
+        log.color_print(f"<Step {step}> Generating overview article structure for: {english_topic} </Step {step}>\n")
+        step += 1
 
         # Generate section queries
         section_queries = self._generate_section_queries(english_topic)
@@ -709,6 +705,8 @@ class OverviewRAG(RAGAgent):
         english_sections = {}
         total_tokens = 0
 
+        log.color_print(f"<Step {step}> Search related contents for each section. </Step {step}>\n")
+        step += 1
         for section in self.sections:
             if section not in section_queries:
                 log.warning(f"No query found for section: {section}")
@@ -726,6 +724,7 @@ class OverviewRAG(RAGAgent):
             total_tokens += search_tokens
 
             # Generate section content
+            log.color_print(f"<writting> Generating content for section '{section}'... </writting>\n")
             section_content, content_tokens = self._generate_section_content(
                 section, english_topic, retrieved_results
             )
@@ -739,16 +738,22 @@ class OverviewRAG(RAGAgent):
             full_text += f"## {section}\n\n{english_sections[section]}\n\n"
 
         # Compile and refine the final review
+        log.color_print("<Step {step}> Compiling and refining the final review... </Step {step}>\n")
+        step += 1
         compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
         total_tokens += compile_tokens
 
         # Generate abstract and conclusion
+        log.color_print("<Step {step}> Generating abstract and conclusion... </Step {step}>\n")
+        step += 1
         abstract, conclusion, abstract_tokens = self._generate_abstract_and_conclusion(
             english_topic, compiled_text
         )
         total_tokens += abstract_tokens
 
         # Reorganize references and generate reference list
+        log.color_print("<Step {step}> Reorganizing references... </Step {step}>\n")
+        step += 1
         reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
         total_tokens += ref_tokens
 
@@ -768,11 +773,13 @@ class OverviewRAG(RAGAgent):
         compiled_sections["References"] = references_text
 
         # Translate each section to Chinese
+        log.color_print("<Step {step}> Translating sections to Chinese... </Step {step}>\n")
+        step += 1
         chinese_sections = {}
         for section, content in compiled_sections.items():
             if section != "References":  # Don't translate references
                 log.color_print(
-                    f"<translating> Translating section '{section}' to Chinese... </translating>\n"
+                    f"<translating> Translating section '{section}' </translating>\n"
                 )
                 chinese_sections[section] = self._translate_to_chinese(content)
             else:
