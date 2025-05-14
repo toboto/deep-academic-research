@@ -318,6 +318,8 @@ class AcademicTranslator(BaseAgent):
         Please translate the following academic text from {self._get_language_name(source_lang)} to {self._get_language_name(target_lang)}.
         This is an academic text, please maintain the accuracy and academic style of professional terminology.
         
+        Output translation directly, do not include any other text or reasoning process.
+
         Here are some translation references for professional terms, please use these translations as a reference:
         """
 

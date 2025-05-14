@@ -108,9 +108,9 @@ if __name__ == "__main__":
         default="dev_rag_articles",
         help="Vector database collection name",
     )
-    parser.add_argument("--top_k_per_section", "-tkps", default=80, help="Top k per section")
+    parser.add_argument("--top_k_per_section", "-tkps", default=50, help="Top k per section")
     parser.add_argument(
-        "--top_k_accepted_results", "-tkar", default=80, help="Top k accepted results"
+        "--top_k_accepted_results", "-tkar", default=50, help="Top k accepted results"
     )
     args = parser.parse_args()
 
@@ -121,11 +121,11 @@ if __name__ == "__main__":
         log.set_dev_mode(False)
         log.set_level(logging.INFO)
 
-    query = args.query if args.query else "请写一篇有关粪菌移植的综述"
+    query = args.query if args.query else "请写一篇有关阿克曼氏菌方面的综述"
     output_file = (
         args.output
         if args.output
-        else os.path.join(current_dir, "..", "outputs", "fmt_overview.md")
+        else os.path.join(current_dir, "..", "outputs", "academic_overview.md")
     )
 
     main(query, 

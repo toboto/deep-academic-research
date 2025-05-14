@@ -738,13 +738,13 @@ class OverviewRAG(RAGAgent):
             full_text += f"## {section}\n\n{english_sections[section]}\n\n"
 
         # Compile and refine the final review
-        log.color_print("<Step {step}> Compiling and refining the final review... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Compiling and refining the final review... </Step {step}>\n")
         step += 1
         compiled_text, compile_tokens = self._compile_final_review(english_topic, full_text)
         total_tokens += compile_tokens
 
         # Generate abstract and conclusion
-        log.color_print("<Step {step}> Generating abstract and conclusion... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Generating abstract and conclusion... </Step {step}>\n")
         step += 1
         abstract, conclusion, abstract_tokens = self._generate_abstract_and_conclusion(
             english_topic, compiled_text
@@ -752,7 +752,7 @@ class OverviewRAG(RAGAgent):
         total_tokens += abstract_tokens
 
         # Reorganize references and generate reference list
-        log.color_print("<Step {step}> Reorganizing references... </Step {step}>\n")
+        log.color_print(f"<Step {step}> Reorganizing references... </Step {step}>\n")
         step += 1
         reorganized_text, references_text, ref_tokens = self._reorganize_references(compiled_text)
         total_tokens += ref_tokens
@@ -761,6 +761,7 @@ class OverviewRAG(RAGAgent):
         import re
 
         compiled_sections = {}
+        compiled_sections["Abstract"] = abstract
         section_pattern = r"## (.*?)\n\n(.*?)(?=\n\n## |$)"
         for match in re.finditer(section_pattern, reorganized_text, re.DOTALL):
             section_name = match.group(1).strip()
@@ -768,19 +769,15 @@ class OverviewRAG(RAGAgent):
             compiled_sections[section_name] = section_content
 
         # Add abstract, conclusion and references to the sections
-        compiled_sections["Abstract"] = abstract
         compiled_sections["Conclusion"] = conclusion
         compiled_sections["References"] = references_text
 
         # Translate each section to Chinese
-        log.color_print("<Step {step}> Translating sections to Chinese... </Step {step}>\n")
-        step += 1
+        log.color_print(f"<Step {step}> Translating sections to Chinese... </Step {step}>\n")
         chinese_sections = {}
         for section, content in compiled_sections.items():
             if section != "References":  # Don't translate references
-                log.color_print(
-                    f"<translating> Translating section '{section}' </translating>\n"
-                )
+                log.debug(f"Translating section '{section}' to Chinese...")
                 chinese_sections[section] = self._translate_to_chinese(content)
             else:
                 chinese_sections[section] = content
@@ -815,16 +812,15 @@ class OverviewRAG(RAGAgent):
         self.english_response = f"# Overview: {query}\n\n"
         self.chinese_response = f"# 综述：{query}\n\n"
 
-        overview_sections = ["Abstract"]
-        overview_sections.extend(self.sections)
-        overview_sections.append("Conclusion")
-        overview_sections.append("References")
-        for section in overview_sections:
-            if section in english_sections and section in chinese_sections:
-                self.english_response += f"## {section}\n\n"
-                self.english_response += f"{english_sections[section]}\n\n"
-                self.chinese_response += self.translator.translate(f"## {section}", "zh") + "\n\n"
-                self.chinese_response += f"{chinese_sections[section]}\n\n"
+        for section in english_sections:
+            log.debug(f"Merge English section '{section}', text length: {len(english_sections[section])}")
+            self.english_response += f"## {section}\n\n"
+            self.english_response += f"{english_sections[section]}\n\n"
+
+        for section in chinese_sections:
+            log.debug(f"Merge Chinese section '{section}', text length: {len(chinese_sections[section])}")
+            self.chinese_response += self.translator.translate(f"## {section}", "zh") + "\n\n"
+            self.chinese_response += f"{chinese_sections[section]}\n\n"
 
         return self.english_response, [], total_tokens
 
