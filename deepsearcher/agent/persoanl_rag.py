@@ -720,7 +720,7 @@ Summary: {article["summary"]}
         # Generate section content
         prompt = prompt_template.format(researcher_name=researcher_name, publications=publications)
 
-        log.color_print(f"<writing> Generating content for section '{section}'... </writing>\n")
+        log.color_print(f"<writing> Generating content for section '{section}'... </writing>")
         response = self.writing_llm.chat([{"role": "user", "content": prompt}])
 
         return response.content, response.total_tokens
@@ -735,7 +735,7 @@ Summary: {article["summary"]}
         Returns:
             Formatted reference list as a string
         """
-        log.color_print("<optimizing> Generating references from articles... </optimizing>\n")
+        log.color_print("<optimizing> Generating references from articles... </optimizing>")
         references = []
 
         for i, article in enumerate(articles):
@@ -907,7 +907,7 @@ Summary: {article["summary"]}
                     optimized_section_titles[section] = title
                     total_tokens += tokens
                     log.color_print(
-                        f"<debug> Using cached content for section '{section}' </debug>\n"
+                        f"<debug> Using cached content for section '{section}' </debug>"
                     )
                     continue
 
@@ -989,7 +989,7 @@ Summary: {article["summary"]}
             section_title = self._translate_to_chinese(section, author_translate_dict)
             if section != "References":  # Don't translate references
                 log.color_print(
-                    f"<translating> Translating section '{section}' to Chinese... </translating>\n"
+                    f"<translating> Translating section '{section}' to Chinese... </translating>"
                 )
                 chinese_sections[section_title] = self._translate_to_chinese(
                     content, author_translate_dict
@@ -1063,7 +1063,7 @@ Summary: {article["summary"]}
             问题列表
         """
         log.color_print(
-            f"<reasoning> Generating questions for section '{section_title}'... </reasoning>\n"
+            f"<reasoning> Generating questions for section '{section_title}'... </reasoning>"
         )
 
         prompt = QUESTION_GENERATION_PROMPT.format(
@@ -1101,7 +1101,7 @@ Summary: {article["summary"]}
             return ""
 
         log.color_print(
-            "<searching> Searching for additional content based on questions... </searching>\n"
+            "<searching> Searching for additional content based on questions... </searching>"
         )
 
         consumed_tokens = 0
@@ -1110,13 +1110,13 @@ Summary: {article["summary"]}
             selected_collections, n_token_route = self.collection_router.invoke(query=questions[0])
             consumed_tokens += n_token_route
             log.color_print(
-                f"<search> Collection router selected: {selected_collections} </search>\n"
+                f"<search> Collection router selected: {selected_collections} </search>"
             )
         else:
             # Use default collection
             selected_collections = [self.vector_db_collection]
             log.color_print(
-                f"<search> Using provided collection: {self.vector_db_collection} </search>\n"
+                f"<search> Using provided collection: {self.vector_db_collection} </search>"
             )
 
         all_results = []
@@ -1186,7 +1186,7 @@ Summary: {article["summary"]}
             return section_title, section_content, 0
 
         log.color_print(
-            f"<optimizing> Optimizing section '{section_title}' with additional findings... </optimizing>\n"
+            f"<optimizing> Optimizing section '{section_title}' with additional findings... </optimizing>"
         )
 
         prompt = SECTION_OPTIMIZATION_PROMPT.format(
