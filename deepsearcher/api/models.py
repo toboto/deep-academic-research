@@ -172,7 +172,7 @@ class DiscussCreateRequest(BaseModel):
         None,
         description="关联ID，可选"
     )
-    term_ids: Optional[List[int]] = Field(
+    term_tree_node_ids: Optional[List[int]] = Field(
         None,
         description="关键词ID列表，可选"
     )
@@ -257,3 +257,54 @@ class DiscussAIReplyRequest(BaseModel):
     reply_uuid: str = Field(..., description="UUID of the discuss to reply to")
     user_hash: str = Field(..., description="User hash")
     user_id: int = Field(..., description="User ID")
+
+
+class DiscussListRequest(BaseModel):
+    """列出讨论话题请求模型"""
+    thread_uuid: str = Field(
+        ...,
+        description="话题UUID"
+    )
+    user_hash: Optional[str] = Field(
+        "", 
+        description="用户hash"
+    )
+    limit: int = Field(
+        ...,
+        description="限制数量"
+    )
+    from_depth: int = Field(
+        ...,
+        description="从深度开始"
+    )
+
+class DiscussListEntity(BaseModel):
+    """讨论话题实体"""
+    uuid: str = Field(..., description="话题UUID")
+    depth: int = Field(..., description="深度")
+    content: str = Field(..., description="内容")
+    created: datetime = Field(..., description="创建时间")
+    role: str = Field(..., description="用户角色")
+    user_hash: str = Field(..., description="用户hash")
+    user_id: int = Field(..., description="用户ID")
+    user_name: str = Field(..., description="用户名")
+    user_avatar: str = Field(..., description="用户头像")
+
+class DiscussListResponse(BaseModel):
+    """列出讨论话题响应模型"""
+    code: int = Field(
+        ...,
+        description="响应码：0-成功，非0-失败"
+    )
+    message: str = Field(
+        ...,
+        description="响应消息"
+    )
+    count: int = Field(
+        ...,
+        description="数量"
+    )
+    discuss_list: Optional[List[DiscussListEntity]] = Field(
+        None,
+        description="讨论列表"
+    )

@@ -43,6 +43,9 @@ from deepsearcher.api.models import (
     DiscussPostRequest,
     DiscussPostResponse,
     DiscussAIReplyRequest,
+    DiscussListRequest,
+    DiscussListResponse,
+    DiscussListEntity,
 )
 
 from deepsearcher.rbase.ai_models import (
@@ -183,7 +186,8 @@ async def api_create_discuss(request: DiscussCreateRequest):
             return DiscussCreateResponse(
                 code=0,
                 message="success",
-                thread_uuid=result.uuid
+                thread_uuid=result.uuid,
+                depth=result.depth
             )
         else:
             # If not exists, create new thread
@@ -191,9 +195,98 @@ async def api_create_discuss(request: DiscussCreateRequest):
             return DiscussCreateResponse(
                 code=0,
                 message="success",
-                thread_uuid=discuss_thread.uuid
+                thread_uuid=discuss_thread.uuid,
+                depth=discuss_thread.depth
             )
         
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content=ExceptionResponse(code=500, message=str(e)).model_dump()
+        )
+
+@router.get(
+    "/generate/list_discuss",
+    summary="List Discussion Topics API",
+    description="""
+    List discussion topics.
+    
+    - Supports author, topic, and paper related types
+    - Optional cache usage
+    - Supports streaming response
+    """,
+)
+async def api_list_discuss(request: DiscussListRequest):
+    """
+    List discussion topics.
+
+    Args:
+        request (DiscussCreateRequest): Request parameters for listing discussion topics
+
+    Returns:
+        DiscussListResponse: Response containing discussion topics
+    """
+    try:
+        # 1. 验证讨论话题是否存在
+        thread = await get_discuss_thread_by_uuid(request.thread_uuid)
+        if not thread:
+            return JSONResponse(
+                status_code=400,
+                content=ExceptionResponse(
+                    code=400, 
+                    message=f"讨论话题不存在: {request.thread_uuid}"
+                ).model_dump()
+            )
+        
+        # 2. 从数据库获取讨论列表
+        discuss_entities = []
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                # 构建SQL查询
+                sql = """
+                SELECT * FROM discuss 
+                WHERE thread_uuid = %s AND is_hidden = 0 AND status = %s
+                """
+                params = [request.thread_uuid, AIResponseStatus.FINISHED.value]
+                
+                # 如果指定了user_hash，添加过滤条件
+                if request.user_hash and request.user_hash.strip():
+                    sql += " AND user_hash = %s"
+                    params.append(request.user_hash)
+                
+                # 添加深度和排序条件
+                sql += " AND depth >= %s ORDER BY depth ASC, created ASC LIMIT %s"
+                params.extend([request.from_depth, request.limit])
+                
+                # 执行查询
+                await cursor.execute(sql, params)
+                results = await cursor.fetchall()
+                
+                # 3. 构建响应数据
+                for result in results:
+                    # 创建实体对象
+                    entity = DiscussListEntity(
+                        uuid=result["uuid"],
+                        depth=result["depth"],
+                        content=result["content"],
+                        created=result["created"],
+                        role=result["role"],
+                        user_hash=result["user_hash"],
+                        user_id=result["user_id"],
+                        user_name=result["user_name"] or "",
+                        user_avatar=result["user_avatar"] or ""
+                    )
+                    discuss_entities.append(entity)
+                
+                # 4. 返回响应
+                return DiscussListResponse(
+                    code=0,
+                    message="success",
+                    count=len(discuss_entities),
+                    discuss_list=discuss_entities
+                )
+                
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -416,7 +509,7 @@ async def generate_summary_stream(rbase_config: dict, ai_request: AIContentReque
     ai_request.status = AIRequestStatus.HANDLING_REQ
     await save_request_to_db(ai_request)
 
-    params = {"min_words": 500, "max_words": 800, "question_count": 3}
+    params = {"min_words": 500, "max_words": 800, "question_count": ai_request.params.get("question_count", 3)}
     for chunk in summary_rag.query_generator(query=ai_request.query, articles=articles, params=params):
         if hasattr(chunk, "usage") and chunk.usage:
             ai_response.usage = chunk.usage.to_dict()

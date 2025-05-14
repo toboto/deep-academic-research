@@ -454,8 +454,8 @@ def initialize_discuss_thread(request: DiscussCreateRequest) -> DiscussThread:
     elif request.related_type == RelatedType.ARTICLE:
         params["article_id"] = request.related_id
 
-    if request.term_ids:
-        params["term_ids"] = request.term_ids
+    if request.term_tree_node_ids:
+        params["term_tree_node_ids"] = request.term_tree_node_ids
     if request.ver is not None:
         params["ver"] = request.ver
 
