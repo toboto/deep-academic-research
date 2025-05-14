@@ -29,6 +29,7 @@ def main(
     verbose: bool = False,
     max_articles: int = 50,
     recent_months: int = 24,
+    use_debug_cache: bool = False,
 ):
     """
     使用PersonalRAG生成研究者学术综述的主函数
@@ -77,7 +78,7 @@ def main(
         top_k_per_section=20,
         top_k_accepted_results=20,
         vector_db_collection=config.provide_settings["vector_db"]["config"]["default_collection"],
-        use_debug_cache=True,
+        use_debug_cache=use_debug_cache,
     )
 
     # 计算处理时间
@@ -110,6 +111,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--recent-months", "-r", type=int, default=24, help="最近几个月的文章优先级较高"
     )
+    parser.add_argument("--use-debug-cache", "-d", action="store_true", help="使用调试缓存")
     args = parser.parse_args()
 
     if args.verbose:
@@ -138,4 +140,5 @@ if __name__ == "__main__":
         verbose=args.verbose,
         max_articles=args.max_articles,
         recent_months=args.recent_months,
+        use_debug_cache=args.use_debug_cache,
     )
