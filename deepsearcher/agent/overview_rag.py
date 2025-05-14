@@ -80,6 +80,21 @@ Ensure your queries are specific, academic in nature, and designed to retrieve c
 Output the JSON response directly without any comments or explanations.
 """
 
+REWRITE_SEARCH_QUERY_PROMPT = """
+You are an academic research assistant tasked with planning a comprehensive literature review on a specific topic.
+
+For the given topic, you have already generated a search query for a specific section.
+But with this query, we can search few relevant content from vector database. 
+It may be due to the query is not specific enough, or the query is not related enough to the topic.
+Please rewrite the query to make it more specific and related to the topic.
+
+Topic: {topic}
+Section: {section}
+Original Query: {query}
+
+Please output the rewritten search query directly.
+"""
+
 # Section content generation prompt
 SECTION_GENERATION_PROMPT = """
 You are an academic writer specializing in creating comprehensive literature reviews. Based on the retrieved academic content, write a detailed section for a literature review.
@@ -671,6 +686,27 @@ class OverviewRAG(RAGAgent):
             log.debug(f"References list: {references_text}")
         return new_text, references_text, 0
 
+    def _rewrite_search_query(
+        self, topic: str, section: str, query: str
+    ) -> Tuple[str, int]:
+        """
+        Generate abstract and conclusion sections for the literature review.
+
+        Args:
+            topic: Research topic
+            review_content: The complete literature review content
+
+        Returns:
+            Tuple of (abstract text, conclusion text, tokens used)
+        """
+        prompt = REWRITE_SEARCH_QUERY_PROMPT.format(topic=topic, section=section, query=query)
+
+        response = self.reasoning_llm.chat([{"role": "user", "content": prompt}])
+
+        # Parse the response to extract abstract and conclusion
+        content = response.content.strip()
+        return content, response.total_tokens
+
     async def generate_overview(
         self, topic: str, **kwargs
     ) -> Tuple[Dict[str, str], Dict[str, str], int]:
@@ -723,19 +759,35 @@ class OverviewRAG(RAGAgent):
             )
             total_tokens += search_tokens
 
-            # Generate section content
-            log.color_print(f"<writting> Generating content for section '{section}'... </writting>\n")
-            section_content, content_tokens = self._generate_section_content(
-                section, english_topic, retrieved_results
-            )
-            total_tokens += content_tokens
+            if len(retrieved_results) <= 3:
+                log.debug(f"Regenerate search query for section '{section}', original query: {query}")
+                query, query_tokens = self._rewrite_search_query(english_topic, section, query)
+                log.debug(f"Regenerated query: {query}")
+                total_tokens += query_tokens
+                secondary_retrieved_results, search_tokens = await self._search_for_section(
+                    section, query, conditions
+                )
+                total_tokens += search_tokens
+                retrieved_results.extend(secondary_retrieved_results)
+
+            if len(retrieved_results) > 0:
+                # Generate section content
+                log.color_print(f"<writting> Generating content for section '{section}'... </writting>\n")
+                section_content, content_tokens = self._generate_section_content(
+                    section, english_topic, retrieved_results
+                )
+                total_tokens += content_tokens
+            else:
+                log.debug(f"No relevant content found for section '{section}', skip it.")
+                section_content = ""
 
             english_sections[section] = section_content
 
         # Combine all sections into full text
         full_text = ""
         for section in self.sections:
-            full_text += f"## {section}\n\n{english_sections[section]}\n\n"
+            if english_sections[section] != "":
+                full_text += f"## {section}\n\n{english_sections[section]}\n\n"
 
         # Compile and refine the final review
         log.color_print(f"<Step {step}> Compiling and refining the final review... </Step {step}>\n")
