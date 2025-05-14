@@ -36,31 +36,24 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                # Query completed requests
-                request_sql = """
-                SELECT id FROM ai_content_request 
-                WHERE request_hash = %s AND status = %s
-                ORDER BY modified DESC LIMIT 1
-                """
-                await cursor.execute(request_sql, (request_hash, AIRequestStatus.FINISHED.value))
-                request_result = await cursor.fetchone()
-                
-                if not request_result:
-                    return None
-                    
-                request_id = request_result["id"]
-                
                 # Query corresponding response
                 response_sql = """
-                SELECT * FROM ai_content_response 
-                WHERE ai_request_id = %s
-                ORDER BY modified DESC LIMIT 1
+                SELECT resp.* FROM ai_content_response resp 
+                    LEFT JOIN ai_content_request req ON resp.ai_request_id = req.id
+                    WHERE req.request_hash = %s and req.`status` = %s
+                    ORDER BY resp.modified DESC LIMIT 1
                 """
-                await cursor.execute(response_sql, (request_id,))
+                await cursor.execute(response_sql, (request_hash, AIRequestStatus.FINISHED.value))
                 response_result = await cursor.fetchone()
                 
                 if not response_result:
                     return None
+                
+                update_hit_cnt_sql = """
+                UPDATE ai_content_response SET cache_hit_cnt = cache_hit_cnt + 1
+                WHERE id = %s
+                """
+                await cursor.execute(update_hit_cnt_sql, (response_result["id"],))
                     
                 # Handle double-encoded JSON strings
                 tokens_str = response_result["tokens"]
@@ -77,7 +70,7 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
                 # Construct response object
                 return AIContentResponse(
                     id=response_result["id"],
-                    ai_request_id=request_id,
+                    ai_request_id=response_result["ai_request_id"],
                     is_generating=response_result["is_generating"],
                     content=response_result["content"],
                     tokens=tokens_dict,
