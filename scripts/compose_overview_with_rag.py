@@ -132,6 +132,6 @@ if __name__ == "__main__":
          output_file, 
          verbose=args.verbose, 
          vector_db_collection=args.vector_db_collection,
-         top_k_per_section=args.top_k_per_section,
-         top_k_accepted_results=args.top_k_accepted_results
+         top_k_per_section=int(args.top_k_per_section),
+         top_k_accepted_results=int(args.top_k_accepted_results)
          )

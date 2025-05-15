@@ -138,7 +138,7 @@ if __name__ == "__main__":
         query,
         output_file,
         verbose=args.verbose,
-        max_articles=args.max_articles,
-        recent_months=args.recent_months,
+        max_articles=int(args.max_articles),
+        recent_months=int(args.recent_months),
         use_debug_cache=args.use_debug_cache,
     )
