@@ -484,7 +484,7 @@ def _create_params_by_question_request(request: QuestionRequest) -> dict:
         }
     elif request.related_type == RelatedType.COLUMN:
         params = {
-            "column_id": request.related_id
+            "channel_id": request.related_id
         }
     elif request.related_type == RelatedType.ARTICLE:
         params = {
