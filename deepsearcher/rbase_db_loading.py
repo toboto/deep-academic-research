@@ -390,19 +390,6 @@ async def load_articles_by_channel(channel_id: int, term_tree_node_ids: list[int
     
     return await load_articles_by_term_ids(term_id_groups, channel_id, offset, limit)
 
-async def load_articles_by_article_ids(article_ids: list[int], offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
-    """
-    Load article data from Rbase database by article IDs
-    
-    Args:
-        article_ids: List of article IDs
-        offset: Query start position
-        limit: Query limit count
-
-    Returns:
-        List of RbaseArticle objects
-    """
-    return await load_articles_by_article_ids(article_ids, offset, limit)
 
 async def get_sub_node_concept_ids(base_id: int, term_tree_node_id: int) -> list[int]:
     """
@@ -572,7 +559,7 @@ async def load_articles_by_article_ids(article_ids: list[int], offset: int = 0, 
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 placeholders = ", ".join(["%s"] * len(article_ids))
-                sql = """
+                sql = f"""
                 SELECT a.id, a.raw_article_id, a.txt_file, 
                     a.title, a.authors, a.corresponding_authors,
                     a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate,

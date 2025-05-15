@@ -90,6 +90,8 @@ async def api_generate_summary(request: SummaryRequest):
     """
     try:
         metadata = await build_term_tree_node_metadata(request.term_tree_node_ids)
+        if request.related_type == RelatedType.ARTICLE:
+            metadata = await build_article_metadata(request.related_id, metadata)
         ai_request = initialize_ai_request_by_summary(request, metadata)
 
         if request.depress_cache == DepressCache.DISABLE:
@@ -144,6 +146,8 @@ async def api_generate_questions(request: QuestionRequest):
     """
     try:
         metadata = await build_term_tree_node_metadata(request.term_tree_node_ids)
+        if request.related_type == RelatedType.ARTICLE:
+            metadata = await build_article_metadata(request.related_id, metadata)
         ai_request = initialize_ai_request_by_question(request, metadata)
         if request.depress_cache == DepressCache.DISABLE:
             ai_response = await get_response_by_request_hash(ai_request.request_hash)
@@ -489,7 +493,7 @@ async def generate_summary_stream(ai_request: AIContentRequest, related_type: Re
             ai_request.params.get("term_tree_node_ids", []))
     elif related_type == RelatedType.ARTICLE:
         articles = await load_articles_by_article_ids(
-            ai_request.params.get("article_ids", []))
+            [ai_request.params.get("article_id")])
     else:
         articles = []
 
@@ -643,6 +647,9 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
         articles = await load_articles_by_channel(
             ai_request.params.get("channel_id", 0),
             ai_request.params.get("term_tree_node_ids", []))
+    elif related_type == RelatedType.ARTICLE:
+        articles = await load_articles_by_article_ids(
+            [ai_request.params.get("article_id")])
     else:
         articles = []
 
@@ -936,4 +943,10 @@ async def build_term_tree_node_metadata(term_tree_node_ids: List[int]) -> dict:
     for node in term_tree_nodes:
         metadata["concepts"].append(node.node_concept_name)
     metadata["column_description"] = "、".join(metadata["concepts"])
+    return metadata
+
+async def build_article_metadata(article_id: int, metadata: dict = {}) -> dict:
+    articles = await load_articles_by_article_ids([article_id])
+    if len(articles) > 0:
+        metadata["article_description"] = articles[0].abstract
     return metadata
