@@ -60,6 +60,14 @@ class SummaryRequest(BaseModel):
         ...,
         description="是否使用流式响应"
     )
+    discuss_thread_uuid: Optional[str] = Field(
+        None,
+        description="讨论话题UUID"
+    )
+    discuss_reply_uuid: Optional[str] = Field(
+        None,
+        description="讨论回复UUID"
+    )
 
 
 class SummaryResponse(BaseModel):
@@ -205,6 +213,10 @@ class DiscussCreateResponse(BaseModel):
         ...,
         description="话题UUID"
     )
+    has_summary: bool = Field(
+        ...,
+        description="是否存在总结"
+    )
 
 class DiscussPostRequest(BaseModel):
     """发布讨论内容请求模型"""
@@ -258,6 +270,11 @@ class DiscussAIReplyRequest(BaseModel):
     user_hash: str = Field(..., description="User hash")
     user_id: int = Field(..., description="User ID")
 
+class SortType(int, Enum):
+    """排序类型枚举"""
+    ASC = 1  # 升序
+    DESC = -1  # 降序
+
 
 class DiscussListRequest(BaseModel):
     """列出讨论话题请求模型"""
@@ -277,14 +294,19 @@ class DiscussListRequest(BaseModel):
         ...,
         description="从深度开始"
     )
+    sort: Optional[SortType] = Field(
+        SortType.ASC, 
+        description="排序类型"
+    )
 
 class DiscussListEntity(BaseModel):
     """讨论话题实体"""
     uuid: str = Field(..., description="话题UUID")
     depth: int = Field(..., description="深度")
     content: str = Field(..., description="内容")
-    created: datetime = Field(..., description="创建时间")
+    created: int = Field(..., description="创建时间时间戳")
     role: str = Field(..., description="用户角色")
+    is_summary: int = Field(..., description="是否存在总结")
     user_hash: str = Field(..., description="用户hash")
     user_id: int = Field(..., description="用户ID")
     user_name: str = Field(..., description="用户名")

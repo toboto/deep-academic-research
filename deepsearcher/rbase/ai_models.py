@@ -197,7 +197,7 @@ class Discuss(BaseModel):
         "",
         description="UUID"
     )
-    relate_type: RelatedType = Field(
+    related_type: RelatedType = Field(
         ...,
         description="关联类型"
     )
@@ -209,12 +209,12 @@ class Discuss(BaseModel):
         ...,
         description="话题UUID"
     )
-    reply_id: int = Field(
+    reply_id: Optional[int] = Field(
         None,
         description="回复ID"
     )
-    reply_uuid: str = Field(
-        "",
+    reply_uuid: Optional[str] = Field(
+        None,
         description="回复UUID"
     )
     depth: int = Field(
@@ -237,7 +237,7 @@ class Discuss(BaseModel):
         ...,
         description="角色"
     )
-    user_id: int = Field(
+    user_id: Optional[int] = Field(
         None,
         description="用户ID"
     )
@@ -252,6 +252,10 @@ class Discuss(BaseModel):
     trample: int = Field(
         0,
         description="踩数"
+    )
+    is_summary: int = Field(
+        0,
+        description="是否存在总结"
     )
     status: AIResponseStatus = Field(
         ...,

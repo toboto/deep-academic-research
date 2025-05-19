@@ -25,11 +25,15 @@ from deepsearcher.api.rbase_util import (
     get_discuss_thread_by_request_hash,
     get_discuss_thread_by_id,
     save_discuss_thread_to_db,
+    is_thread_has_summary,
     get_discuss_thread_by_uuid,
     save_discuss_to_db,
     get_discuss_by_uuid,
     get_discuss_history,
     get_term_tree_nodes,
+    get_discuss_by_thread_uuid,
+    update_ai_content_to_discuss,
+    update_discuss_thread_depth,
 )
 from deepsearcher.api.models import (
     RelatedType,
@@ -47,6 +51,7 @@ from deepsearcher.api.models import (
     DiscussListRequest,
     DiscussListResponse,
     DiscussListEntity,
+    SortType,
 )
 
 from deepsearcher.rbase.ai_models import (
@@ -101,16 +106,18 @@ async def api_generate_summary(request: SummaryRequest):
 
         if request.stream:
             if not ai_response:
-                return create_summary_stream(ai_request, request.related_type)
+                return create_summary_stream(ai_request, request.related_type, request)
             else:
+                await update_ai_content_to_discuss(ai_response, request.thread_uuid, request.reply_uuid)
                 return StreamingResponse(generate_text_stream(ai_response.content, ai_response.id), 
                                          media_type="text/event-stream")
         else:
             resp = SummaryResponse(code=0, message="success")
             if not ai_response:
-                summary = await generate_ai_content(ai_request, request.related_type)
+                summary = await generate_ai_content(ai_request, request.related_type, request)
                 resp.setContent(summary)
             else:
+                await update_ai_content_to_discuss(ai_response, request.thread_uuid, request.reply_uuid)
                 resp.setContent(ai_response.content)
 
             return resp
@@ -156,7 +163,7 @@ async def api_generate_questions(request: QuestionRequest):
 
         question_response = QuestionResponse(code=0, message="success")
         if not ai_response:
-            summary = await generate_ai_content(ai_request, request.related_type) 
+            summary = await generate_ai_content(ai_request, request.related_type, None) 
             question_response.setQuestions(summary)
         else:
             question_response.setQuestions(ai_response.content)
@@ -178,7 +185,7 @@ async def api_generate_questions(request: QuestionRequest):
     - Returns topic UUID
     """,
 )
-async def api_create_discuss(request: DiscussCreateRequest):
+async def api_create_discuss_thread(request: DiscussCreateRequest):
     """
     Create a discussion topic or return existing topic UUID.
 
@@ -191,14 +198,16 @@ async def api_create_discuss(request: DiscussCreateRequest):
     try:
         discuss_thread = initialize_discuss_thread(request)
         result = await get_discuss_thread_by_request_hash(discuss_thread.request_hash, discuss_thread.user_hash)
-        
+
         if result:
             # If exists, return UUID directly
+            has_summary = await is_thread_has_summary(result.id)
             return DiscussCreateResponse(
                 code=0,
                 message="success",
                 thread_uuid=result.uuid,
-                depth=result.depth
+                depth=result.depth,
+                has_summary=has_summary
             )
         else:
             # If not exists, create new thread
@@ -207,7 +216,8 @@ async def api_create_discuss(request: DiscussCreateRequest):
                 code=0,
                 message="success",
                 thread_uuid=discuss_thread.uuid,
-                depth=discuss_thread.depth
+                depth=discuss_thread.depth,
+                has_summary=False
             )
         
     except Exception as e:
@@ -239,7 +249,7 @@ async def api_list_discuss(request: DiscussListRequest):
     """
     try:
         # 1. 验证讨论话题是否存在
-        thread = await get_discuss_thread_by_uuid(request.thread_uuid)
+        thread = await get_discuss_thread_by_uuid(request.thread_uuid, user_hash=request.user_hash)
         if not thread:
             return JSONResponse(
                 status_code=400,
@@ -261,13 +271,12 @@ async def api_list_discuss(request: DiscussListRequest):
                 """
                 params = [request.thread_uuid, AIResponseStatus.FINISHED.value]
                 
-                # 如果指定了user_hash，添加过滤条件
-                if request.user_hash and request.user_hash.strip():
-                    sql += " AND user_hash = %s"
-                    params.append(request.user_hash)
-                
                 # 添加深度和排序条件
-                sql += " AND depth >= %s ORDER BY depth ASC, created ASC LIMIT %s"
+                if request.sort == SortType.ASC:
+                    sql += " AND depth >= %s ORDER BY depth ASC, created ASC LIMIT %s"
+                else:
+                    sql += " AND depth <= %s ORDER BY depth DESC, created DESC LIMIT %s"
+
                 params.extend([request.from_depth, request.limit])
                 
                 # 执行查询
@@ -281,12 +290,13 @@ async def api_list_discuss(request: DiscussListRequest):
                         uuid=result["uuid"],
                         depth=result["depth"],
                         content=result["content"],
-                        created=result["created"],
+                        created=int(result["created"].timestamp()),  # 将datetime转换为整数时间戳
                         role=result["role"],
-                        user_hash=result["user_hash"],
+                        is_summary=result["is_summary"],
+                        user_hash=request.user_hash,
                         user_id=result["user_id"],
-                        user_name=result["user_name"] or "",
-                        user_avatar=result["user_avatar"] or ""
+                        user_name=result["user_name"] if "user_name" in result else "",
+                        user_avatar=result["user_avatar"] if "user_avatar" in result else ""
                     )
                     discuss_entities.append(entity)
                 
@@ -355,6 +365,7 @@ async def api_post_discuss(request: DiscussPostRequest):
         discuss = initialize_discuss_by_post_request(request, thread, reply_discuss)
         content_id = await save_discuss_to_db(discuss)
         if content_id:
+            await update_discuss_thread_depth(thread.uuid, discuss.depth)
             return DiscussPostResponse(
                 code=0,
                 message="success",
@@ -450,7 +461,7 @@ async def api_ai_reply_discuss(request: DiscussAIReplyRequest):
             content=ExceptionResponse(code=500, message=str(e)).model_dump()
         )
 
-def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedType) -> StreamingResponse:
+def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> StreamingResponse:
     """
     Create a streaming response for summary generation.
 
@@ -462,11 +473,11 @@ def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedTyp
         StreamingResponse: The streaming response object
     """
     
-    return StreamingResponse(generate_summary_stream(ai_request, related_type), 
+    return StreamingResponse(generate_summary_stream(ai_request, related_type, summary_request), 
                              media_type="text/event-stream")
 
     
-async def generate_summary_stream(ai_request: AIContentRequest, related_type: RelatedType) -> AsyncGenerator[bytes, None]:
+async def generate_summary_stream(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> AsyncGenerator[bytes, None]:
     """
     Generate a streaming response for summary content.
 
@@ -553,7 +564,9 @@ async def generate_summary_stream(ai_request: AIContentRequest, related_type: Re
     ai_response.tokens["generating"] = []
     ai_response.status = AIResponseStatus.FINISHED
     await save_response_to_db(ai_response)
-    
+
+    await update_ai_content_to_discuss(ai_response, summary_request.thread_uuid, summary_request.reply_uuid)
+
     yield "data: [DONE]\n\n".encode('utf-8')
 
 
@@ -621,7 +634,7 @@ async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[by
     yield "data: [DONE]\n\n".encode('utf-8')
 
 
-async def generate_ai_content(ai_request: AIContentRequest, related_type: RelatedType) -> str:
+async def generate_ai_content(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> str:
     """
     Create AI content based on the request and related type.
 
@@ -675,6 +688,9 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
     ai_response.status = AIResponseStatus.FINISHED
     await save_response_to_db(ai_response)
 
+    if summary_request:
+        await update_ai_content_to_discuss(ai_response, summary_request.thread_uuid, summary_request.reply_uuid)
+
     return summary
 
 async def get_discuss_background(thread_id: int) -> str:
@@ -721,17 +737,19 @@ def initialize_discuss_by_post_request(request: DiscussPostRequest, thread: Disc
     """
     discuss = Discuss(
         uuid="",
+        related_type=thread.related_type,
         thread_id=thread.id,
         thread_uuid=thread.uuid,
-        reply_id=replyDiscuss.id if replyDiscuss else 0,
-        reply_uuid=replyDiscuss.uuid if replyDiscuss else "",
-        depth=replyDiscuss.depth + 1 if replyDiscuss else 0,
+        reply_id=replyDiscuss.id if replyDiscuss else None,
+        reply_uuid=replyDiscuss.uuid if replyDiscuss else None,
+        depth=replyDiscuss.depth + 1 if replyDiscuss else thread.depth + 1,
         content=request.content,
         role=DiscussRole.USER,
         tokens={},
         usage={},
+        is_summary=0,
         status=AIResponseStatus.FINISHED,
-        user_id=request.user_id,
+        user_id=request.user_id if request.user_id else None,
         created=time.time(),
         modified=time.time(),
     )
@@ -875,6 +893,13 @@ async def get_thread_background(thread: DiscussThread) -> str:
     
     # Get background information based on related type
     try:
+
+        has_summary = await is_thread_has_summary(thread.id)
+        if has_summary:
+            background_discuss = await get_discuss_by_thread_uuid(thread.uuid, is_summary=1)
+            if background_discuss:
+                return background_discuss.content
+
         if thread.related_type == RelatedType.CHANNEL or thread.related_type == RelatedType.COLUMN:
             channel_id = thread.params.get("channel_id", 0)
             if channel_id:

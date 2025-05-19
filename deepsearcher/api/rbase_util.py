@@ -204,6 +204,69 @@ async def save_response_to_db(response: AIContentResponse, modified: datetime = 
     except Exception as e:
         raise Exception(f"Failed to save response to db: {e}")
 
+async def update_ai_content_to_discuss(response: AIContentResponse, thread_uuid: str, reply_uuid: str):
+    """
+    Update AI content to discuss
+
+    Args:
+        response: AIContentResponse object
+        thread_uuid: Thread UUID
+        reply_uuid: Reply UUID
+    """
+    if not thread_uuid:
+        return
+
+    try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                sql = "SELECT * FROM discuss_thread WHERE uuid = %s"
+                await cursor.execute(sql, (thread_uuid,))
+                thread = await cursor.fetchone()
+                if not thread:
+                    raise Exception(f"Failed to get discuss thread by uuid: {thread_uuid}")
+                if thread["depth"] > 0 and reply_uuid:
+                    sql = "SELECT * FROM discuss WHERE uuid = %s"
+                    await cursor.execute(sql, (reply_uuid,))
+                    reply = await cursor.fetchone()
+                    if not reply:
+                        raise Exception(f"Failed to get discuss by uuid: {reply_uuid}")
+                else:
+                    reply = None
+
+                discuss = Discuss(
+                    related_type=RelatedType(thread["related_type"]),
+                    thread_id=thread["id"],
+                    thread_uuid=thread["uuid"],
+                    reply_id=reply["id"] if reply else None,
+                    reply_uuid=reply["uuid"] if reply else None,
+                    depth=reply["depth"] if reply else 1,
+                    content=response.content,
+                    tokens=response.tokens,
+                    usage=response.usage,
+                    is_summary=1,
+                    role=DiscussRole.ASSISTANT,
+                    status=AIResponseStatus.FINISHED,
+                    created=datetime.now(),
+                    modified=datetime.now()
+                )
+                discuss.create_uuid()
+                await save_discuss_to_db(discuss)
+    except Exception as e:
+        raise Exception(f"Failed to update ai content to discuss: {e}")
+
+async def update_discuss_thread_depth(thread_uuid: str, depth: int):
+    """
+    Update discuss thread depth
+    """
+    try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                sql = "UPDATE discuss_thread SET depth = %s WHERE uuid = %s"
+                await cursor.execute(sql, (depth, thread_uuid))
+    except Exception as e:
+        raise Exception(f"Failed to update discuss thread depth: {e}")
 
 async def get_discuss_thread_by_request_hash(request_hash: str, user_hash: str) -> DiscussThread:
     """
@@ -232,6 +295,23 @@ async def get_discuss_thread_by_request_hash(request_hash: str, user_hash: str) 
                 return DiscussThread(**result)
     except Exception as e:
         raise Exception(f"Failed to get discuss thread by request hash: {e}")
+    
+async def is_thread_has_summary(thread_id: int) -> bool:
+    """
+    Check if the discussion thread has a summary
+    """
+    try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                sql = """
+                SELECT COUNT(*) as cnt FROM discuss WHERE thread_id = %s AND is_summary = 1
+                """
+                await cursor.execute(sql, (thread_id,))
+                result = await cursor.fetchone()
+                return result["cnt"] > 0
+    except Exception as e:
+        raise Exception(f"Failed to check if thread has summary: {e}")
 
 async def get_discuss_thread_by_id(thread_id: int) -> DiscussThread:
     """
@@ -346,7 +426,7 @@ def get_request_hash(request: BaseModel) -> str:
     # Calculate hash value
     return hashlib.md5(request_json.encode()).hexdigest()
 
-async def get_discuss_thread_by_uuid(thread_uuid: str) -> DiscussThread:
+async def get_discuss_thread_by_uuid(thread_uuid: str, **kwargs) -> DiscussThread:
     """
     Get discussion thread by topic UUID
     
@@ -356,14 +436,24 @@ async def get_discuss_thread_by_uuid(thread_uuid: str) -> DiscussThread:
     Returns:
         DiscussThread: Discussion thread object, returns None if not found
     """
+    user_hash = kwargs.get("user_hash", None)
+    user_id = kwargs.get("user_id", None)
     pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
+                params = [thread_uuid]
                 sql = """
                 SELECT * FROM discuss_thread WHERE uuid = %s AND is_hidden = 0
                 """
-                await cursor.execute(sql, (thread_uuid,))
+                if user_hash:
+                    sql += " AND user_hash = %s"
+                    params.append(user_hash)
+                if user_id:
+                    sql += " AND user_id = %s"
+                    params.append(user_id)
+
+                await cursor.execute(sql, params)
                 result = await cursor.fetchone()
                 if not result:
                     return None
@@ -420,16 +510,18 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
                 if discuss.id == 0:
                     sql = """
                     INSERT INTO discuss (
-                        uuid, relate_type, thread_id, thread_uuid, reply_id, reply_uuid, depth, 
-                        content, role, tokens, `usage`, user_id, is_hidden, `like`, trample, status, 
-                        created, modified
+                        uuid, related_type, thread_id, thread_uuid, reply_id, reply_uuid, depth, 
+                        content, role, tokens, `usage`, user_id, is_hidden, `like`, trample, 
+                        is_summary, status, created, modified
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, 
+                        %s, %s, %s, %s, %s, %s, %s, %s, 
+                        %s, %s, %s, %s
                     )
                     """
                     await cursor.execute(sql, (
                         discuss.uuid,
-                        discuss.relate_type.value,
+                        discuss.related_type.value,
                         discuss.thread_id,
                         discuss.thread_uuid,
                         discuss.reply_id,
@@ -443,6 +535,7 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
                         discuss.is_hidden,
                         discuss.like,
                         discuss.trample,
+                        discuss.is_summary,
                         discuss.status.value,
                         discuss.created,
                         discuss.modified
@@ -458,6 +551,7 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
                         is_hidden = %s,
                         `like` = %s,
                         trample = %s,
+                        is_summary = %s,
                         status = %s,
                     WHERE id = %s
                     """
@@ -469,6 +563,7 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
                         discuss.is_hidden,
                         discuss.like,
                         discuss.trample,
+                        discuss.is_summary,
                         discuss.status.value,
                         discuss.id
                     ))
@@ -476,9 +571,9 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
     except Exception as e:
         raise Exception(f"Failed to save discuss content: {e}")
 
-async def get_discuss_by_thread_uuid(thread_uuid: str) -> list:
+async def get_discuss_by_thread_uuid(thread_uuid: str, discuss_uuid: str = None, **kwargs) -> Discuss:
     """
-    Get all discussion content by topic UUID
+    Get discussion record by topic UUID, if is_summary is True, get the summary record, if discuss_uuid is not None, get the specific record
     
     Args:
         thread_uuid: Topic UUID
@@ -486,24 +581,29 @@ async def get_discuss_by_thread_uuid(thread_uuid: str) -> list:
     Returns:
         list: List of discussion content objects
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+    if not kwargs and not discuss_uuid:
+        return None
+    
+    is_summary = kwargs.get("is_summary", 0)
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                sql = """
-                SELECT * FROM discuss 
-                WHERE thread_uuid = %s AND is_hidden = 0 AND status = %s
-                ORDER BY depth ASC
-                """
-                await cursor.execute(sql, (thread_uuid, AIResponseStatus.FINISHED.value))
-                results = await cursor.fetchall()
-                rts = []
-                for result in results:
-                    result["tokens"] = json.loads(result["tokens"]) if result["tokens"] else {}
-                    result["usage"] = json.loads(result["usage"]) if result["usage"] else {}
-                    result["status"] = AIResponseStatus(result["status"])
-                    rts.append(Discuss(**result))
-                return rts
+                sql = "SELECT * FROM discuss WHERE thread_uuid = %s AND is_hidden = 0 AND status = %s "
+                params = [thread_uuid, AIResponseStatus.FINISHED.value, discuss_uuid]
+                if is_summary:
+                    sql += "AND is_summary = 1"
+                if discuss_uuid:
+                    sql += "AND uuid = %s"
+                    params.append(discuss_uuid)
+                await cursor.execute(sql, params)
+                result = await cursor.fetchone()
+                if not result:
+                    return None
+                result["tokens"] = json.loads(result["tokens"]) if result["tokens"] else {}
+                result["usage"] = json.loads(result["usage"]) if result["usage"] else {}
+                result["status"] = AIResponseStatus(result["status"])
+                return Discuss(**result)
     except Exception as e:
         raise Exception(f"Failed to get discuss content list: {e}")
 
