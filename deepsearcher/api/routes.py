@@ -782,6 +782,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
             translator=configuration.academic_translator,
             embedding_model=configuration.embedding_model,
             vector_db=configuration.vector_db,
+            verbose=configuration.config.rbase_settings.get("verbose", False)
         )
         
         # Send role message

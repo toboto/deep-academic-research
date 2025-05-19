@@ -144,6 +144,7 @@ load_settings:
   chunk_overlap: 100
 
 rbase_settings:
+  verbose: false
   database:
     provider: "mysql"
     config:

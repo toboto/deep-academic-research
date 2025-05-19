@@ -151,9 +151,9 @@ class DiscussAgent:
         history = kwargs.get("history", [])
         target_lang = kwargs.get("target_lang", "zh")
         request_params = kwargs.get("request_params", {})
-        self.top_k_per_section = kwargs.get("top_k_per_section", 5)
-        self.vector_db_collection = kwargs.get("vector_db_collection", self.vector_db.default_collection)
-        self.verbose = kwargs.get("verbose", False)
+        self.top_k_per_section = kwargs.get("top_k_per_section", self.top_k_per_section)
+        self.vector_db_collection = kwargs.get("vector_db_collection", self.vector_db_collection)
+        self.verbose = kwargs.get("verbose", self.verbose)
         
         # 格式化对话历史
         formatted_history = ""

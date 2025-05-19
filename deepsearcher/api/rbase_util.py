@@ -242,7 +242,7 @@ async def update_ai_content_to_discuss(response: AIContentResponse, thread_uuid:
                     thread_uuid=thread["uuid"],
                     reply_id=reply["id"] if reply else None,
                     reply_uuid=reply["uuid"] if reply else None,
-                    depth=reply["depth"] + 1 if reply else 1,
+                    depth=reply["depth"] + 1 if reply else thread["depth"] + 1,
                     content=response.content,
                     tokens=response.tokens,
                     usage=response.usage,
