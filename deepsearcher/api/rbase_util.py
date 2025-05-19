@@ -32,8 +32,8 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
     Returns:
         AIContentResponse: Response content object, returns None if not found
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 # Query corresponding response
@@ -96,8 +96,9 @@ async def save_request_to_db(request: AIContentRequest, modified: datetime = dat
     """
     if modified:
         request.modified = modified
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 if request.id == 0:
@@ -151,8 +152,9 @@ async def save_response_to_db(response: AIContentResponse, modified: datetime = 
     """
     if modified:
         response.modified = modified
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 if response.id == 0:
@@ -240,7 +242,7 @@ async def update_ai_content_to_discuss(response: AIContentResponse, thread_uuid:
                     thread_uuid=thread["uuid"],
                     reply_id=reply["id"] if reply else None,
                     reply_uuid=reply["uuid"] if reply else None,
-                    depth=reply["depth"] if reply else 1,
+                    depth=reply["depth"] + 1 if reply else 1,
                     content=response.content,
                     tokens=response.tokens,
                     usage=response.usage,
@@ -252,6 +254,7 @@ async def update_ai_content_to_discuss(response: AIContentResponse, thread_uuid:
                 )
                 discuss.create_uuid()
                 await save_discuss_to_db(discuss)
+                await update_discuss_thread_depth(thread_uuid, discuss.depth)
     except Exception as e:
         raise Exception(f"Failed to update ai content to discuss: {e}")
 
@@ -279,8 +282,8 @@ async def get_discuss_thread_by_request_hash(request_hash: str, user_hash: str) 
     Returns:
         DiscussThread: Discussion thread object, returns None if not found
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 sql = """
@@ -323,8 +326,8 @@ async def get_discuss_thread_by_id(thread_id: int) -> DiscussThread:
     Returns:
         DiscussThread: Discussion thread object, returns None if not found
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 sql = """
@@ -350,8 +353,8 @@ async def save_discuss_thread_to_db(discuss_thread: DiscussThread) -> int:
     Returns:
         int: Inserted record ID
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 if discuss_thread.id == 0:
@@ -438,8 +441,8 @@ async def get_discuss_thread_by_uuid(thread_uuid: str, **kwargs) -> DiscussThrea
     """
     user_hash = kwargs.get("user_hash", None)
     user_id = kwargs.get("user_id", None)
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 params = [thread_uuid]
@@ -473,8 +476,10 @@ async def get_discuss_by_uuid(uuid: str) -> Discuss:
     Returns:
         DiscussContent: Discussion content object, returns None if not found
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
+    if not uuid:
+        return None
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 sql = """
@@ -503,8 +508,8 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
     Returns:
         int: Inserted record ID
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 if discuss.id == 0:
@@ -552,7 +557,7 @@ async def save_discuss_to_db(discuss: Discuss) -> int:
                         `like` = %s,
                         trample = %s,
                         is_summary = %s,
-                        status = %s,
+                        status = %s
                     WHERE id = %s
                     """
                     await cursor.execute(sql, (
@@ -577,9 +582,10 @@ async def get_discuss_by_thread_uuid(thread_uuid: str, discuss_uuid: str = None,
     
     Args:
         thread_uuid: Topic UUID
-        
+        discuss_uuid: Discussion UUID
+        is_summary: Whether to get the summary record
     Returns:
-        list: List of discussion content objects
+        Discuss: Discussion content object, returns None if not found
     """
     if not kwargs and not discuss_uuid:
         return None
@@ -590,7 +596,7 @@ async def get_discuss_by_thread_uuid(thread_uuid: str, discuss_uuid: str = None,
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 sql = "SELECT * FROM discuss WHERE thread_uuid = %s AND is_hidden = 0 AND status = %s "
-                params = [thread_uuid, AIResponseStatus.FINISHED.value, discuss_uuid]
+                params = [thread_uuid, AIResponseStatus.FINISHED.value]
                 if is_summary:
                     sql += "AND is_summary = 1"
                 if discuss_uuid:
@@ -619,8 +625,8 @@ async def get_discuss_history(thread_id: int, reply_id: int, limit: int = 10) ->
     Returns:
         list: History records list, sorted by time in ascending order, format as [{"role": "user|assistant", "content": "content"}]
     """
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 # Get history records before current discussion node
@@ -653,8 +659,8 @@ async def get_term_tree_nodes(term_tree_node_ids: list[int]) -> list[TermTreeNod
     if not term_tree_node_ids:
         return []
 
-    pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
     try:
+        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 placeholders = ', '.join(['%s'] * len(term_tree_node_ids))

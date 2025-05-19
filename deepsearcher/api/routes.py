@@ -108,7 +108,7 @@ async def api_generate_summary(request: SummaryRequest):
             if not ai_response:
                 return create_summary_stream(ai_request, request.related_type, request)
             else:
-                await update_ai_content_to_discuss(ai_response, request.thread_uuid, request.reply_uuid)
+                await update_ai_content_to_discuss(ai_response, request.discuss_thread_uuid, request.discuss_reply_uuid)
                 return StreamingResponse(generate_text_stream(ai_response.content, ai_response.id), 
                                          media_type="text/event-stream")
         else:
@@ -117,7 +117,7 @@ async def api_generate_summary(request: SummaryRequest):
                 summary = await generate_ai_content(ai_request, request.related_type, request)
                 resp.setContent(summary)
             else:
-                await update_ai_content_to_discuss(ai_response, request.thread_uuid, request.reply_uuid)
+                await update_ai_content_to_discuss(ai_response, request.discuss_thread_uuid, request.discuss_reply_uuid)
                 resp.setContent(ai_response.content)
 
             return resp
@@ -294,7 +294,7 @@ async def api_list_discuss(request: DiscussListRequest):
                         role=result["role"],
                         is_summary=result["is_summary"],
                         user_hash=request.user_hash,
-                        user_id=result["user_id"],
+                        user_id=result["user_id"] if result["user_id"] else 0,
                         user_name=result["user_name"] if "user_name" in result else "",
                         user_avatar=result["user_avatar"] if "user_avatar" in result else ""
                     )
@@ -430,17 +430,17 @@ async def api_ai_reply_discuss(request: DiscussAIReplyRequest):
         # Create AI reply discussion object
         ai_discuss = Discuss(
             uuid="",
+            related_type=thread.related_type,
             thread_id=thread.id,
             thread_uuid=thread.uuid,
             reply_id=reply_discuss.id if reply_discuss else None,
-            reply_uuid=reply_discuss.uuid if reply_discuss else "",
+            reply_uuid=reply_discuss.uuid if reply_discuss else None,
             depth=reply_discuss.depth + 1 if reply_discuss else 0,
             content="",  # Content will be updated during streaming generation
             role=DiscussRole.ASSISTANT,
             tokens={},
             usage={},
             status=AIResponseStatus.GENERATING,
-            user_id=request.user_id,
             created=time.time(),
             modified=time.time(),
         )
@@ -565,7 +565,7 @@ async def generate_summary_stream(ai_request: AIContentRequest, related_type: Re
     ai_response.status = AIResponseStatus.FINISHED
     await save_response_to_db(ai_response)
 
-    await update_ai_content_to_discuss(ai_response, summary_request.thread_uuid, summary_request.reply_uuid)
+    await update_ai_content_to_discuss(ai_response, summary_request.discuss_thread_uuid, summary_request.discuss_reply_uuid)
 
     yield "data: [DONE]\n\n".encode('utf-8')
 
@@ -689,7 +689,7 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
     await save_response_to_db(ai_response)
 
     if summary_request:
-        await update_ai_content_to_discuss(ai_response, summary_request.thread_uuid, summary_request.reply_uuid)
+        await update_ai_content_to_discuss(ai_response, summary_request.discuss_thread_uuid, summary_request.discuss_reply_uuid)
 
     return summary
 
@@ -799,7 +799,6 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
         
         # Update AI discussion status
-        ai_discuss.is_generating = 1
         ai_discuss.tokens["generating"] = []
         await save_discuss_to_db(ai_discuss)
         
@@ -845,12 +844,12 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
                     yield f"data: {json.dumps(content_chunk)}\n\n".encode('utf-8')
         
         # Update final status
-        ai_discuss.is_generating = 0
         ai_discuss.tokens["generating"] = []
         ai_discuss.status = AIResponseStatus.FINISHED
         if hasattr(discuss_agent, "usage"):
             ai_discuss.usage = discuss_agent.usage
         await save_discuss_to_db(ai_discuss)
+        await update_discuss_thread_depth(thread.uuid, ai_discuss.depth)
         
         # Send completion marker
         yield "data: [DONE]\n\n".encode('utf-8')
@@ -905,9 +904,10 @@ async def get_thread_background(thread: DiscussThread) -> str:
             if channel_id:
                 # Try to get channel information from cached AI summary
                 summary_request = SummaryRequest(
-                    related_type=RelatedType.CHANNEL,
+                    related_type=thread.related_type,
                     related_id=channel_id,
                     term_tree_node_ids=thread.params.get("term_tree_node_ids", []),
+                    ver=thread.params.get("ver", 0),
                     depress_cache=DepressCache.DISABLE,
                     stream=False
                 )

@@ -78,6 +78,7 @@ class AIResponseStatus(int, Enum):
     GENERATING = 1 # 生成中
     FINISHED = 10 # 已完成
     DEPRECATED = 100 # 已废弃
+    ERROR = 1000 # 错误
 
 class AIContentResponse(BaseModel):
     """AI内容接口响应模型"""

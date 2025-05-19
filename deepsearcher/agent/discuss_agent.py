@@ -177,7 +177,15 @@ class DiscussAgent:
         self.usage = response.usage()
         try:
             # 解析LLM返回的JSON响应
-            action_result = json.loads(response.content.strip())
+            content = response.content.strip()
+            # 处理可能的markdown代码块格式
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+            
+            action_result = json.loads(content)
             intention = action_result.get("intention")
             need_search = action_result.get("need_search", False)
             search_query = action_result.get("search_query", "")
