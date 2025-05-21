@@ -59,7 +59,7 @@ async def build_article_metadata(article_id: int, metadata: dict = {}) -> dict:
     """
     articles = await load_articles_by_article_ids([article_id])
     if len(articles) > 0:
-        metadata["article_id"] = articles[0].id
+        metadata["article_id"] = articles[0].article_id
         metadata["article_title"] = articles[0].title
         metadata["article_abstract"] = articles[0].abstract
     return metadata 

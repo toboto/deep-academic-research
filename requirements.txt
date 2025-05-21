@@ -3,6 +3,7 @@ firecrawl-py
 langchain_text_splitters
 pdfplumber
 pymilvus
+pymilvus.model
 openai
 numpy
 tqdm
