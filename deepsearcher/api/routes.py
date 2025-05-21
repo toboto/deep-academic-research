@@ -34,6 +34,8 @@ from deepsearcher.api.rbase_util import (
     get_discuss_by_thread_uuid,
     update_ai_content_to_discuss,
     update_discuss_thread_depth,
+    get_base_by_id,
+    get_base_category_by_id,
 )
 from deepsearcher.api.models import (
     RelatedType,
@@ -94,9 +96,7 @@ async def api_generate_summary(request: SummaryRequest):
         HTTPException: When request parameters are invalid or processing fails
     """
     try:
-        metadata = await build_term_tree_node_metadata(request.term_tree_node_ids)
-        if request.related_type == RelatedType.ARTICLE:
-            metadata = await build_article_metadata(request.related_id, metadata)
+        metadata = await build_metadata(request.related_type, request.related_id, request.term_tree_node_ids)
         ai_request = initialize_ai_request_by_summary(request, metadata)
 
         if request.depress_cache == DepressCache.DISABLE:
@@ -152,9 +152,7 @@ async def api_generate_questions(request: QuestionRequest):
         HTTPException: When request parameters are invalid or processing fails
     """
     try:
-        metadata = await build_term_tree_node_metadata(request.term_tree_node_ids)
-        if request.related_type == RelatedType.ARTICLE:
-            metadata = await build_article_metadata(request.related_id, metadata)
+        metadata = await build_metadata(request.related_type, request.related_id, request.term_tree_node_ids)
         ai_request = initialize_ai_request_by_question(request, metadata)
         if request.depress_cache == DepressCache.DISABLE:
             ai_response = await get_response_by_request_hash(ai_request.request_hash)
@@ -714,7 +712,7 @@ async def get_discuss_background(thread_id: int) -> str:
         else:
             related_id = 0
  
-        metadata = await build_term_tree_node_metadata(thread.params.get("term_tree_node_ids", None))
+        metadata = await build_metadata_by_term_tree_node(thread.params.get("term_tree_node_ids", None))
         ai_request = initialize_ai_request_by_summary(SummaryRequest(
             related_type=thread.related_type,
             related_id=related_id,
@@ -912,7 +910,9 @@ async def get_thread_background(thread: DiscussThread) -> str:
                     depress_cache=DepressCache.DISABLE,
                     stream=False
                 )
-                metadata = await build_term_tree_node_metadata(summary_request.term_tree_node_ids)
+                metadata = await build_metadata(summary_request.related_type, 
+                                                summary_request.related_id, 
+                                                summary_request.term_tree_node_ids)
                 ai_request = initialize_ai_request_by_summary(summary_request, metadata)
                 ai_response = await get_response_by_request_hash(ai_request.request_hash)
                 if ai_response and ai_response.content:
@@ -960,7 +960,15 @@ async def get_thread_background(thread: DiscussThread) -> str:
     # Return empty background by default
     return ""
 
-async def build_term_tree_node_metadata(term_tree_node_ids: List[int]) -> dict:
+async def build_metadata(related_type: RelatedType, related_id: int, term_tree_node_ids: List[int] = []) -> dict:
+    """
+    Build metadata for general AI requests
+    """
+    metadata = await build_metadata_by_term_tree_node(term_tree_node_ids)
+    metadata = await build_metadata_by_related_type(related_type, related_id, metadata)
+    return metadata
+
+async def build_metadata_by_term_tree_node(term_tree_node_ids: List[int]) -> dict:
     """
     Build metadata for term tree nodes.
     """
@@ -971,8 +979,34 @@ async def build_term_tree_node_metadata(term_tree_node_ids: List[int]) -> dict:
     metadata["column_description"] = "、".join(metadata["concepts"])
     return metadata
 
+async def build_metadata_by_related_type(related_type: RelatedType, related_id: int, metadata: dict = {}) -> dict:
+    """
+    Build metadata for related type.
+    """
+    desc = metadata.get("column_description", "")
+    if related_type == RelatedType.CHANNEL:
+        base = await get_base_by_id(related_id)
+        if base:
+            metadata["base_id"] = base.id
+            metadata["column_description"] = f"频道：{base.name}"
+            metadata["column_description"] += f", 内容关于：{desc}"
+    elif related_type == RelatedType.COLUMN:
+        base_category = await get_base_category_by_id(related_id)
+        if base_category:
+            metadata["base_id"] = base_category.base_id
+            metadata["column_description"] = f"栏目：{base_category.name}, 属于频道：{base_category.base_name}"
+            metadata["column_description"] += f", 内容关于：{desc}"
+    elif related_type == RelatedType.ARTICLE:
+        metadata = await build_article_metadata(related_id, metadata)
+    return metadata
+
 async def build_article_metadata(article_id: int, metadata: dict = {}) -> dict:
+    """
+    Build metadata for article.
+    """
     articles = await load_articles_by_article_ids([article_id])
     if len(articles) > 0:
-        metadata["article_description"] = articles[0].abstract
+        metadata["article_id"] = articles[0].id
+        metadata["article_title"] = articles[0].title
+        metadata["article_abstract"] = articles[0].abstract
     return metadata
