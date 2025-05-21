@@ -4,36 +4,37 @@
 
 ## 基础信息
 
-- 基础URL: `http://localhost:8000/api/v1`
+- 基础URL: `/api`
 - 所有请求和响应均使用 JSON 格式
-- 认证方式：API Key（在请求头中添加 `X-API-Key`）
 
 ## 接口列表
 
-### 1. 生成研究主题综述
+### 1. 生成 AI 概述
 
 #### 请求
 
 ```http
-POST /overview
+POST /generate/summary
 ```
 
 #### 请求头
 
 ```http
 Content-Type: application/json
-X-API-Key: your-api-key
 ```
 
 #### 请求体
 
 ```json
 {
-    "topic": "人工智能在医疗领域的应用",
-    "language": "zh",  // 可选，默认 "zh"，支持 "zh" 或 "en"
-    "top_k_per_section": 20,  // 可选，每个章节检索的文档数量
-    "top_k_accepted_results": 20,  // 可选，每个章节接受的文档数量
-    "vector_db_collection": "default"  // 可选，向量数据库集合名称
+    "related_type": 1,  // 可选值: 1-频道，2-栏目，3-文章
+    "related_id": 123,  // 关联ID
+    "term_tree_node_ids": [1, 2, 3],  // 可选，术语树节点ID列表
+    "ver": 1,  // 可选，版本号
+    "depress_cache": 1,  // 可选，缓存抑制：0-启用缓存，1-禁用缓存
+    "stream": true,  // 可选，是否使用流式响应
+    "discuss_thread_uuid": "uuid",  // 可选，讨论主题UUID
+    "discuss_reply_uuid": "uuid"  // 可选，回复UUID
 }
 ```
 
@@ -41,39 +42,36 @@ X-API-Key: your-api-key
 
 ```json
 {
-    "status": "success",
-    "data": {
-        "english_response": "# Overview: AI Applications in Healthcare\n\n## Abstract\n...",
-        "chinese_response": "# 综述：人工智能在医疗领域的应用\n\n## 摘要\n..."
-    },
-    "tokens_used": 12345
+    "code": 0,
+    "message": "success",
+    "content": "生成的概述内容..."
 }
 ```
 
-### 2. 生成研究者成果综述
+### 2. 生成推荐问题
 
 #### 请求
 
 ```http
-POST /personal
+POST /generate/questions
 ```
 
 #### 请求头
 
 ```http
 Content-Type: application/json
-X-API-Key: your-api-key
 ```
 
 #### 请求体
 
 ```json
 {
-    "researcher": "张三",
-    "language": "zh",  // 可选，默认 "zh"，支持 "zh" 或 "en"
-    "top_k_per_section": 20,  // 可选，每个章节检索的文档数量
-    "top_k_accepted_results": 20,  // 可选，每个章节接受的文档数量
-    "vector_db_collection": "default"  // 可选，向量数据库集合名称
+    "related_type": 1,  // 可选值: 1-频道，2-栏目，3-文章
+    "related_id": 123,  // 关联ID
+    "term_tree_node_ids": [1, 2, 3],  // 可选，术语树节点ID列表
+    "ver": 1,  // 可选，版本号
+    "depress_cache": 1,  // 可选，缓存抑制：0-启用缓存，1-禁用缓存
+    "count": 3  // 问题数量
 }
 ```
 
@@ -81,42 +79,175 @@ X-API-Key: your-api-key
 
 ```json
 {
-    "status": "success",
-    "data": {
-        "english_response": "# Research Overview: Zhang San\n\n## Academic Background\n...",
-        "chinese_response": "# 科研综述：张三\n\n## 学术背景\n..."
-    },
-    "tokens_used": 12345
+    "code": 0,
+    "message": "success",
+    "questions": ["问题1", "问题2", "问题3"]
 }
 ```
 
-### 3. 健康检查
+### 3. 创建讨论主题
 
 #### 请求
 
 ```http
-GET /health
+POST /generate/discuss_create
 ```
 
 #### 请求头
 
 ```http
-X-API-Key: your-api-key
+Content-Type: application/json
+```
+
+#### 请求体
+
+```json
+{
+    "related_type": 1,  // 可选值: 1-频道，2-栏目，3-文章
+    "related_id": 123,  // 关联ID
+    "term_tree_node_ids": [1, 2, 3],  // 可选，术语树节点ID列表
+    "ver": 1,  // 可选，版本号
+    "user_hash": "user_hash",  // 用户哈希值
+    "user_id": 123  // 用户ID
+}
 ```
 
 #### 响应
 
 ```json
 {
-    "status": "success",
-    "data": {
-        "version": "1.0.0",
-        "services": {
-            "llm": "healthy",
-            "vector_db": "healthy",
-            "translator": "healthy"
+    "code": 0,
+    "message": "success",
+    "thread_uuid": "uuid",
+    "depth": 1,
+    "has_summary": false
+}
+```
+
+### 4. 获取讨论列表
+
+#### 请求
+
+```http
+GET /generate/list_discuss
+```
+
+#### 请求头
+
+```http
+```
+
+#### 查询参数
+
+```json
+{
+    "thread_uuid": "uuid",  // 讨论主题UUID
+    "user_hash": "user_hash",  // 用户哈希值
+    "from_depth": 0,  // 起始深度
+    "limit": 20,  // 返回数量限制
+    "sort": 1  // 排序方式：1-升序，-1-降序
+}
+```
+
+#### 响应
+
+```json
+{
+    "code": 0,
+    "message": "success",
+    "count": 10,
+    "discuss_list": [
+        {
+            "uuid": "uuid",
+            "depth": 1,
+            "content": "讨论内容",
+            "created": 1234567890,
+            "role": "user",
+            "is_summary": false,
+            "user_hash": "user_hash",
+            "user_id": 123,
+            "user_name": "用户名",
+            "user_avatar": "头像URL"
         }
-    }
+    ]
+}
+```
+
+### 5. 发布讨论内容
+
+#### 请求
+
+```http
+POST /generate/discuss_post
+```
+
+#### 请求头
+
+```http
+Content-Type: application/json
+```
+
+#### 请求体
+
+```json
+{
+    "thread_uuid": "uuid",  // 讨论主题UUID
+    "reply_uuid": "uuid",  // 可选，回复的UUID
+    "content": "讨论内容",
+    "user_hash": "user_hash",  // 用户哈希值
+    "user_id": 123  // 可选，用户ID
+}
+```
+
+#### 响应
+
+```json
+{
+    "code": 0,
+    "message": "success",
+    "uuid": "uuid",
+    "depth": 1
+}
+```
+
+### 6. AI 回复讨论
+
+#### 请求
+
+```http
+POST /generate/ai_reply
+```
+
+#### 请求头
+
+```http
+Content-Type: application/json
+```
+
+#### 请求体
+
+```json
+{
+    "thread_uuid": "uuid",  // 讨论主题UUID
+    "reply_uuid": "uuid"  // 回复的UUID
+}
+```
+
+#### 响应
+
+流式响应，格式如下：
+
+```json
+{
+    "id": "chatcmpl-123",
+    "object": "chat.completion.chunk",
+    "created": 1234567890,
+    "model": "rbase-discuss-agent",
+    "choices": [{
+        "index": 0,
+        "delta": {"content": "回复内容片段"},
+        "finish_reason": null
+    }]
 }
 ```
 
@@ -126,11 +257,8 @@ X-API-Key: your-api-key
 
 ```json
 {
-    "status": "error",
-    "error": {
-        "code": "ERROR_CODE",
-        "message": "错误描述信息"
-    }
+    "code": 500,
+    "message": "错误描述信息"
 }
 ```
 
@@ -149,40 +277,43 @@ X-API-Key: your-api-key
 ```python
 import requests
 
-API_KEY = "your-api-key"
-BASE_URL = "http://localhost:8000/api/v1"
+BASE_URL = "https://yourdomain.com/api"
 
-# 生成研究主题综述
+# 生成 AI 概述
 response = requests.post(
-    f"{BASE_URL}/overview",
+    f"{BASE_URL}/generate/summary",
     headers={
-        "Content-Type": "application/json",
-        "X-API-Key": API_KEY
+        "Content-Type": "application/json"
     },
     json={
-        "topic": "人工智能在医疗领域的应用",
-        "language": "zh"
+        "related_type": 1,
+        "related_id": 123,
+        "term_tree_node_ids": [1, 2, 3],
+        "stream": True,
+        "depress_cache": 1
     }
 )
 
 if response.status_code == 200:
     result = response.json()
-    print(result["data"]["chinese_response"])
+    print(result["content"])
 else:
-    print(f"Error: {response.json()['error']['message']}")
+    print(f"Error: {response.json()['message']}")
 ```
 
 ### cURL 示例
 
 ```bash
-# 生成研究主题综述
+# 生成 AI 概述
 curl -X POST \
-  http://localhost:8000/api/v1/overview \
+  https://yourdomain.com/api/generate/summary \
   -H 'Content-Type: application/json' \
-  -H 'X-API-Key: your-api-key' \
   -d '{
-    "topic": "人工智能在医疗领域的应用",
-    "language": "zh"
+    "related_type": 1,
+    "related_id": 123,
+    "term_tree_node_ids": [1, 2, 3],
+    "stream": true,
+    "depress_cache": 1
   }'
 ```
 
@@ -193,8 +324,8 @@ curl -X POST \
    - 每个 IP 每分钟最多 100 次请求
 
 2. 响应时间：
-   - 健康检查接口：< 1s
-   - 综述生成接口：30s - 5min（取决于主题复杂度和数据量）
+   - 普通请求：< 1s
+   - AI 生成请求：30s - 5min（取决于内容复杂度和数据量）
 
 3. 数据安全：
    - 所有请求和响应都通过 HTTPS 加密
