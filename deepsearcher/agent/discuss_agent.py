@@ -1,4 +1,5 @@
 from typing import Tuple, List, Generator
+from deepsearcher import configuration
 from deepsearcher.llm.base import BaseLLM
 from deepsearcher.embedding.base import BaseEmbedding
 from deepsearcher.agent import AcademicTranslator
@@ -103,7 +104,7 @@ class DiscussAgent:
         # 设置默认检索参数
         self.top_k_per_section = kwargs.get("top_k_per_section", 5)
         self.vector_db_collection = kwargs.get("vector_db_collection", self.vector_db.default_collection)
-        self.verbose = kwargs.get("verbose", False)
+        self.verbose = kwargs.get("verbose", configuration.config.rbase_settings.get("verbose", False))
 
     def resetUsage(self):
         self.usage = {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0}
@@ -244,6 +245,7 @@ class DiscussAgent:
             
             if self.verbose:
                 log.color_print(f"<生成回复> 正在生成回复... </生成回复>\n")
+                log.debug(f"answer_prompt: {answer_prompt}")
             
             return  self.llm.stream_generator([{"role": "user", "content": answer_prompt}])
             

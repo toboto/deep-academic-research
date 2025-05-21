@@ -256,11 +256,11 @@ async def update_ai_content_to_discuss(response: AIContentResponse, thread_uuid:
                 )
                 discuss.create_uuid()
                 await save_discuss_to_db(discuss)
-                await update_discuss_thread_depth(thread_uuid, discuss.depth)
+                await update_discuss_thread_depth(thread_uuid, discuss.depth, discuss.uuid)
     except Exception as e:
         raise Exception(f"Failed to update ai content to discuss: {e}")
 
-async def update_discuss_thread_depth(thread_uuid: str, depth: int):
+async def update_discuss_thread_depth(thread_uuid: str, depth: int, discuss_uuid: str = None):
     """
     Update discuss thread depth
     """
@@ -268,8 +268,22 @@ async def update_discuss_thread_depth(thread_uuid: str, depth: int):
         pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                sql = "UPDATE discuss_thread SET depth = %s WHERE uuid = %s"
-                await cursor.execute(sql, (depth, thread_uuid))
+                await conn.begin()
+                try:
+                    # Update discuss thread depth
+                    sql = "UPDATE discuss_thread SET depth = %s WHERE uuid = %s"
+                    await cursor.execute(sql, (depth, thread_uuid))
+                    
+                    # If discuss_uuid is provided, update other discuss content status to deprecated
+                    if discuss_uuid:
+                        sql = "UPDATE discuss SET status = %s WHERE uuid <> %s AND thread_uuid = %s AND depth = %s"
+                        await cursor.execute(sql, (AIResponseStatus.DEPRECATED.value, discuss_uuid, thread_uuid, depth))
+                    
+                    await conn.commit()
+                except Exception as e:
+                    # Rollback transaction on error
+                    await conn.rollback()
+                    raise e
     except Exception as e:
         raise Exception(f"Failed to update discuss thread depth: {e}")
 

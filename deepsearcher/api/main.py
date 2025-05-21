@@ -1,5 +1,5 @@
 """
-FastAPI Application Entry Point
+Main API Application
 
 This module initializes and configures the FastAPI application.
 """
@@ -68,21 +68,21 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Rbase Deep Searcher API",
-    description="API for Rbase academic research platform",
-    version="0.0.1",
+    title="Rbase API",
+    description="Rbase API for academic research",
+    version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源，生产环境应该限制
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # 允许所有方法
-    allow_headers=["*"],  # 允许所有头
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include routers

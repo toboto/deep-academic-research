@@ -1,50 +1,19 @@
 """
-API Route Definitions
+Discussion Routes
 
-This module defines the FastAPI routes and their handler functions for the Rbase API.
+This module contains routes and functions for handling discussions.
 """
 
-import asyncio
 import json
 import time
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator
 
-import random
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
-from deepsearcher import configuration
 
-from deepsearcher.db.async_mysql_connection import get_mysql_pool
-from deepsearcher.agent.summary_rag import SummaryRag
-from deepsearcher.agent.discuss_agent import DiscussAgent
-from deepsearcher.rbase_db_loading import load_articles_by_channel, load_articles_by_article_ids
-from deepsearcher.api.rbase_util import (
-    get_response_by_request_hash, 
-    save_request_to_db, 
-    save_response_to_db,
-    get_discuss_thread_by_request_hash,
-    get_discuss_thread_by_id,
-    save_discuss_thread_to_db,
-    is_thread_has_summary,
-    get_discuss_thread_by_uuid,
-    save_discuss_to_db,
-    get_discuss_by_uuid,
-    get_discuss_history,
-    get_term_tree_nodes,
-    get_discuss_by_thread_uuid,
-    update_ai_content_to_discuss,
-    update_discuss_thread_depth,
-    get_base_by_id,
-    get_base_category_by_id,
-)
+from deepsearcher import configuration
 from deepsearcher.api.models import (
     RelatedType,
-    SummaryRequest,
-    SummaryResponse,
-    QuestionRequest,
-    QuestionResponse,
-    ExceptionResponse,
-    DepressCache,
     DiscussCreateRequest,
     DiscussCreateResponse,
     DiscussPostRequest,
@@ -53,127 +22,39 @@ from deepsearcher.api.models import (
     DiscussListRequest,
     DiscussListResponse,
     DiscussListEntity,
+    ExceptionResponse,
     SortType,
+    SummaryRequest,
+    DepressCache,
 )
-
+from deepsearcher.api.rbase_util import (
+    get_discuss_thread_by_request_hash,
+    get_discuss_thread_by_uuid,
+    save_discuss_thread_to_db,
+    is_thread_has_summary,
+    get_discuss_by_uuid,
+    get_discuss_by_thread_uuid,
+    save_discuss_to_db,
+    update_discuss_thread_depth,
+    get_discuss_history,
+    get_mysql_pool,
+    get_response_by_request_hash,
+)
+from deepsearcher.agent.discuss_agent import DiscussAgent
 from deepsearcher.rbase.ai_models import (
-    AIContentRequest,
-    AIRequestStatus,
-    AIResponseStatus,
-    Discuss, 
+    Discuss,
     DiscussThread,
     DiscussRole,
-    initialize_ai_request_by_summary,
-    initialize_ai_request_by_question,
-    initialize_ai_content_response,
+    AIResponseStatus,
     initialize_discuss_thread,
+    initialize_ai_request_by_summary,
 )
+from .metadata import build_metadata
 
 router = APIRouter()
 
 @router.post(
-    "/generate/summary",
-    summary="AI Summary Generation API",
-    description="""
-    Generate AI summary content.
-    
-    - Supports author, topic, and paper related types
-    - Optional cache usage
-    - Supports streaming response
-    """,
-)
-async def api_generate_summary(request: SummaryRequest):
-    """
-    Generate AI summary content based on the request.
-
-    Args:
-        request (SummaryRequest): The summary request parameters
-
-    Returns:
-        Union[SummaryResponse, StreamingResponse]: The response result
-
-    Raises:
-        HTTPException: When request parameters are invalid or processing fails
-    """
-    try:
-        metadata = await build_metadata(request.related_type, request.related_id, request.term_tree_node_ids)
-        ai_request = initialize_ai_request_by_summary(request, metadata)
-
-        if request.depress_cache == DepressCache.DISABLE:
-            ai_response = await get_response_by_request_hash(ai_request.request_hash)
-        else:
-            ai_response = None
-
-        if request.stream:
-            if not ai_response:
-                return create_summary_stream(ai_request, request.related_type, request)
-            else:
-                await update_ai_content_to_discuss(ai_response, request.discuss_thread_uuid, request.discuss_reply_uuid)
-                return StreamingResponse(generate_text_stream(ai_response.content, ai_response.id), 
-                                         media_type="text/event-stream")
-        else:
-            resp = SummaryResponse(code=0, message="success")
-            if not ai_response:
-                summary = await generate_ai_content(ai_request, request.related_type, request)
-                resp.setContent(summary)
-            else:
-                await update_ai_content_to_discuss(ai_response, request.discuss_thread_uuid, request.discuss_reply_uuid)
-                resp.setContent(ai_response.content)
-
-            return resp
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=ExceptionResponse(code=500, message=str(e)).model_dump()
-        )
-
-@router.post(
-    "/generate/questions",
-    summary="AI Question Recommendation API",
-    description="""
-    Generate AI recommended questions.
-    
-    - Supports author, topic, and paper related types
-    - Optional cache usage
-    - Supports streaming response
-    """,
-)
-async def api_generate_questions(request: QuestionRequest):
-    """
-    Generate AI recommended questions based on the request.
-
-    Args:
-        request (QuestionRequest): The question request parameters
-
-    Returns:
-        QuestionResponse: The response containing recommended questions
-
-    Raises:
-        HTTPException: When request parameters are invalid or processing fails
-    """
-    try:
-        metadata = await build_metadata(request.related_type, request.related_id, request.term_tree_node_ids)
-        ai_request = initialize_ai_request_by_question(request, metadata)
-        if request.depress_cache == DepressCache.DISABLE:
-            ai_response = await get_response_by_request_hash(ai_request.request_hash)
-        else:
-            ai_response = None
-
-        question_response = QuestionResponse(code=0, message="success")
-        if not ai_response:
-            summary = await generate_ai_content(ai_request, request.related_type, None) 
-            question_response.setQuestions(summary)
-        else:
-            question_response.setQuestions(ai_response.content)
-        return question_response
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content=ExceptionResponse(code=500, message=str(e)).model_dump()
-        )
-
-@router.post(
-    "/generate/discuss_create",
+    "/discuss_create",
     summary="Discussion Topic Creation API",
     description="""
     Create a new discussion topic or return existing topic UUID.
@@ -225,7 +106,7 @@ async def api_create_discuss_thread(request: DiscussCreateRequest):
         )
 
 @router.get(
-    "/generate/list_discuss",
+    "/list_discuss",
     summary="List Discussion Topics API",
     description="""
     List discussion topics.
@@ -313,7 +194,7 @@ async def api_list_discuss(request: DiscussListRequest):
         )
 
 @router.post(
-    "/generate/discuss_post",
+    "/discuss_post",
     summary="Discussion Content Posting API",
     description="""
     Post discussion content to specified topic.
@@ -363,7 +244,7 @@ async def api_post_discuss(request: DiscussPostRequest):
         discuss = initialize_discuss_by_post_request(request, thread, reply_discuss)
         content_id = await save_discuss_to_db(discuss)
         if content_id:
-            await update_discuss_thread_depth(thread.uuid, discuss.depth)
+            await update_discuss_thread_depth(thread.uuid, discuss.depth, discuss.uuid)
             return DiscussPostResponse(
                 code=0,
                 message="success",
@@ -382,7 +263,7 @@ async def api_post_discuss(request: DiscussPostRequest):
         )
 
 @router.post(
-    "/generate/ai_reply",
+    "/ai_reply",
     summary="AI Discussion Reply API",
     description="""
     Automatically generate AI reply based on user discussion content.
@@ -458,276 +339,6 @@ async def api_ai_reply_discuss(request: DiscussAIReplyRequest):
             status_code=500,
             content=ExceptionResponse(code=500, message=str(e)).model_dump()
         )
-
-def create_summary_stream(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> StreamingResponse:
-    """
-    Create a streaming response for summary generation.
-
-    Args:
-        ai_request (AIContentRequest): The AI content request
-        related_type (RelatedType): The type of related content
-
-    Returns:
-        StreamingResponse: The streaming response object
-    """
-    
-    return StreamingResponse(generate_summary_stream(ai_request, related_type, summary_request), 
-                             media_type="text/event-stream")
-
-    
-async def generate_summary_stream(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> AsyncGenerator[bytes, None]:
-    """
-    Generate a streaming response for summary content.
-
-    Args:
-        rbase_config (dict): The Rbase configuration
-        ai_request (AIContentRequest): The AI content request
-        related_type (RelatedType): The type of related content
-
-    Yields:
-        bytes: Chunks of the streaming response data
-    """
-    # 保存请求到数据库
-    request_id = await save_request_to_db(ai_request)
-    ai_request.id = request_id
-
-    # 初始化响应
-    ai_response = initialize_ai_content_response(ai_request, ai_request.id)
-    response_id = await save_response_to_db(ai_response)
-    ai_response.id = response_id
-    
-    if related_type == RelatedType.CHANNEL or related_type == RelatedType.COLUMN:
-        articles = await load_articles_by_channel(
-            ai_request.params.get("channel_id", 0),
-            ai_request.params.get("term_tree_node_ids", []))
-    elif related_type == RelatedType.ARTICLE:
-        articles = await load_articles_by_article_ids(
-            [ai_request.params.get("article_id")])
-    else:
-        articles = []
-
-    summary_rag = SummaryRag(
-        reasoning_llm=configuration.reasoning_llm,
-        writing_llm=configuration.writing_llm,
-    )
-
-    # Send role message
-    role_chunk = {
-        "id": f"chatcmpl-{ai_response.id}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": "rbase-summary-rag",
-        "choices": [{
-            "index": 0,
-            "delta": {"role": "assistant"},
-            "finish_reason": None
-        }]
-    }
-    yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
-
-    ai_request.status = AIRequestStatus.HANDLING_REQ
-    await save_request_to_db(ai_request)
-
-    params = {"min_words": 500, "max_words": 800, "question_count": ai_request.params.get("question_count", 3)}
-    for chunk in summary_rag.query_generator(query=ai_request.query, articles=articles, params=params):
-        if hasattr(chunk, "usage") and chunk.usage:
-            ai_response.usage = chunk.usage.to_dict()
-            await save_response_to_db(ai_response)
-
-        if len(chunk.choices) > 0:
-            delta = chunk.choices[0].delta
-            stop = chunk.choices[0].finish_reason == "stop"
-            if hasattr(delta, "content") and delta.content is not None:
-                ai_response.is_generating = 1
-                ai_response.content += delta.content
-                ai_response.tokens["generating"].append(delta.content)
-                await save_response_to_db(ai_response)
-                content_chunk = {
-                    "id": f"chatcmpl-{ai_response.id}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "rbase-summary-rag",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": delta.content},
-                        "finish_reason": None if not stop else "stop"
-                    }]
-                }
-                yield f"data: {json.dumps(content_chunk)}\n\n".encode('utf-8')
-
-    ai_request.status = AIRequestStatus.FINISHED
-    await save_request_to_db(ai_request)
-
-    ai_response.is_generating = 0
-    ai_response.tokens["generating"] = []
-    ai_response.status = AIResponseStatus.FINISHED
-    await save_response_to_db(ai_response)
-
-    await update_ai_content_to_discuss(ai_response, summary_request.discuss_thread_uuid, summary_request.discuss_reply_uuid)
-
-    yield "data: [DONE]\n\n".encode('utf-8')
-
-
-async def generate_text_stream(text: str, response_id: int) -> AsyncGenerator[bytes, None]:
-    """
-    Generate a streaming response for text content.
-
-    Args:
-        text (str): The text content to be streamed
-        response_id (int): The unique identifier for this response
-
-    Yields:
-        bytes: Chunks of the streaming response data
-    """
-    # Send role message
-    role_chunk = {
-        "id": f"chatcmpl-{response_id}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": "rbase-summary-rag",
-        "choices": [{
-            "index": 0,
-            "delta": {"role": "assistant"},
-            "finish_reason": None
-        }]
-    }
-    yield f"data: {json.dumps(role_chunk)}\n\n".encode('utf-8')
-    
-    # 将文本均匀划分为60段
-    text_length = len(text)
-    total_chunks = text_length // 5
-    chunk_size = max(1, text_length // total_chunks)
-    chunks = []
-    
-    for i in range(total_chunks - 1):
-        start_idx = i * chunk_size
-        end_idx = (i + 1) * chunk_size
-        if start_idx < text_length:
-            chunks.append(text[start_idx:end_idx])
-    
-    # 添加最后一段，包含所有剩余文本
-    if (total_chunks - 1) * chunk_size < text_length:
-        chunks.append(text[(total_chunks - 1) * chunk_size:])
-    
-    # 移除空块
-    chunks = [chunk for chunk in chunks if chunk]
-    
-    # 发送每一段内容
-    for i, chunk in enumerate(chunks):
-        await asyncio.sleep(random.uniform(0.1, 0.2))  # random delay
-        content_chunk = {
-            "id": f"chatcmpl-{response_id}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "rbase-summary-rag",
-            "choices": [{
-                "index": i,
-                "delta": {"content": chunk},
-                "finish_reason": None if i < len(chunks) - 1 else "stop"
-            }]
-        }
-        yield f"data: {json.dumps(content_chunk)}\n\n".encode('utf-8')
-    
-    # Send end marker
-    yield "data: [DONE]\n\n".encode('utf-8')
-
-
-async def generate_ai_content(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> str:
-    """
-    Create AI content based on the request and related type.
-
-    Args:
-        ai_request (AIContentRequest): The AI content request
-        related_type (RelatedType): The type of related content
-
-    Returns:
-        str: The generated content
-    """
-    request_id = await save_request_to_db(ai_request)
-    ai_request.id = request_id
-
-    ai_response = initialize_ai_content_response(ai_request, ai_request.id)
-    response_id = await save_response_to_db(ai_response)
-    ai_response.id = response_id
-
-    if related_type == RelatedType.CHANNEL:
-        articles = await load_articles_by_channel(
-            ai_request.params.get("channel_id", 0), 
-            ai_request.params.get("term_tree_node_ids", []))
-    elif related_type == RelatedType.COLUMN:
-        articles = await load_articles_by_channel(
-            ai_request.params.get("channel_id", 0),
-            ai_request.params.get("term_tree_node_ids", []))
-    elif related_type == RelatedType.ARTICLE:
-        articles = await load_articles_by_article_ids(
-            [ai_request.params.get("article_id")])
-    else:
-        articles = []
-
-    summary_rag = SummaryRag(
-        reasoning_llm=configuration.reasoning_llm,
-        writing_llm=configuration.writing_llm,
-    )
-
-    params = {"min_words": 500, "max_words": 800, "question_count": ai_request.params.get("question_count", 3)}
-    summary, _, usage = summary_rag.query(
-        query=ai_request.query,
-        articles=articles,
-        params=params,
-        verbose=False,
-    )
-
-    ai_request.status = AIRequestStatus.FINISHED
-    await save_request_to_db(ai_request)
-
-    ai_response.content = summary
-    ai_response.tokens = json.dumps({"generating": []})
-    ai_response.usage = json.dumps(usage.to_dict())
-    ai_response.status = AIResponseStatus.FINISHED
-    await save_response_to_db(ai_response)
-
-    if summary_request:
-        await update_ai_content_to_discuss(ai_response, summary_request.discuss_thread_uuid, summary_request.discuss_reply_uuid)
-
-    return summary
-
-async def get_discuss_background(thread_id: int) -> str:
-    """
-    Get the background of a discuss thread.
-    """
-    thread = await get_discuss_thread_by_id(thread_id)
-    if not thread:
-        return "" 
-
-    if thread.background and len(thread.background) > 0:
-        return thread.background
-    
-    if RelatedType.IsValid(thread.related_type):
-        if thread.related_type == RelatedType.CHANNEL:
-            related_id = thread.params.get("channel_id", 0) 
-        elif thread.related_type == RelatedType.COLUMN:
-            related_id = thread.params.get("column_id", 0)
-        elif thread.related_type == RelatedType.ARTICLE:
-            related_id = thread.params.get("article_id", 0)
-        else:
-            related_id = 0
- 
-        metadata = await build_metadata_by_term_tree_node(thread.params.get("term_tree_node_ids", None))
-        ai_request = initialize_ai_request_by_summary(SummaryRequest(
-            related_type=thread.related_type,
-            related_id=related_id,
-            term_tree_node_ids=thread.params.get("term_tree_node_ids", None),
-            ver=thread.params.get("ver", 0),
-            depress_cache=DepressCache.DISABLE,
-            stream=False,
-        ), metadata)
-        ai_response = await get_response_by_request_hash(ai_request.hash)
-        if ai_response:
-            return ai_response.content
-        else:
-            return ""
-    else:
-        return ""
 
 def initialize_discuss_by_post_request(request: DiscussPostRequest, thread: DiscussThread, replyDiscuss: Discuss) -> Discuss:
     """
@@ -848,7 +459,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         if hasattr(discuss_agent, "usage"):
             ai_discuss.usage = discuss_agent.usage
         await save_discuss_to_db(ai_discuss)
-        await update_discuss_thread_depth(thread.uuid, ai_discuss.depth)
+        await update_discuss_thread_depth(thread.uuid, ai_discuss.depth, ai_discuss.uuid)
         
         # Send completion marker
         yield "data: [DONE]\n\n".encode('utf-8')
@@ -891,7 +502,6 @@ async def get_thread_background(thread: DiscussThread) -> str:
     
     # Get background information based on related type
     try:
-
         has_summary = await is_thread_has_summary(thread.id)
         if has_summary:
             background_discuss = await get_discuss_by_thread_uuid(thread.uuid, is_summary=1)
@@ -958,55 +568,4 @@ async def get_thread_background(thread: DiscussThread) -> str:
         raise Exception(f"获取讨论背景信息失败: {e}")
     
     # Return empty background by default
-    return ""
-
-async def build_metadata(related_type: RelatedType, related_id: int, term_tree_node_ids: List[int] = []) -> dict:
-    """
-    Build metadata for general AI requests
-    """
-    metadata = await build_metadata_by_term_tree_node(term_tree_node_ids)
-    metadata = await build_metadata_by_related_type(related_type, related_id, metadata)
-    return metadata
-
-async def build_metadata_by_term_tree_node(term_tree_node_ids: List[int]) -> dict:
-    """
-    Build metadata for term tree nodes.
-    """
-    term_tree_nodes = await get_term_tree_nodes(term_tree_node_ids)
-    metadata = {"concepts": []}
-    for node in term_tree_nodes:
-        metadata["concepts"].append(node.node_concept_name)
-    metadata["column_description"] = "、".join(metadata["concepts"])
-    return metadata
-
-async def build_metadata_by_related_type(related_type: RelatedType, related_id: int, metadata: dict = {}) -> dict:
-    """
-    Build metadata for related type.
-    """
-    desc = metadata.get("column_description", "")
-    if related_type == RelatedType.CHANNEL:
-        base = await get_base_by_id(related_id)
-        if base:
-            metadata["base_id"] = base.id
-            metadata["column_description"] = f"频道：{base.name}"
-            metadata["column_description"] += f", 内容关于：{desc}"
-    elif related_type == RelatedType.COLUMN:
-        base_category = await get_base_category_by_id(related_id)
-        if base_category:
-            metadata["base_id"] = base_category.base_id
-            metadata["column_description"] = f"栏目：{base_category.name}, 属于频道：{base_category.base_name}"
-            metadata["column_description"] += f", 内容关于：{desc}"
-    elif related_type == RelatedType.ARTICLE:
-        metadata = await build_article_metadata(related_id, metadata)
-    return metadata
-
-async def build_article_metadata(article_id: int, metadata: dict = {}) -> dict:
-    """
-    Build metadata for article.
-    """
-    articles = await load_articles_by_article_ids([article_id])
-    if len(articles) > 0:
-        metadata["article_id"] = articles[0].id
-        metadata["article_title"] = articles[0].title
-        metadata["article_abstract"] = articles[0].abstract
-    return metadata
+    return "" 
