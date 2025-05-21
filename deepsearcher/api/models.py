@@ -326,7 +326,7 @@ class DiscussListResponse(BaseModel):
         ...,
         description="数量"
     )
-    discuss_list: Optional[List[DiscussListEntity]] = Field(
+    discuss_entities: Optional[List[DiscussListEntity]] = Field(
         None,
         description="讨论列表"
     )

@@ -7,6 +7,7 @@ This module contains routes and functions for handling discussions.
 import json
 import time
 from typing import AsyncGenerator
+from datetime import datetime
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -30,15 +31,17 @@ from deepsearcher.api.models import (
 from deepsearcher.api.rbase_util import (
     get_discuss_thread_by_request_hash,
     get_discuss_thread_by_uuid,
-    save_discuss_thread_to_db,
+    save_discuss_thread,
     is_thread_has_summary,
     get_discuss_by_uuid,
-    get_discuss_by_thread_uuid,
-    save_discuss_to_db,
+    get_discuss_in_thread,
+    save_discuss,
     update_discuss_thread_depth,
-    get_discuss_history,
-    get_mysql_pool,
+    get_discuss_thread_history,
     get_response_by_request_hash,
+    list_discuss_in_thread,
+    get_base_by_id,
+    get_base_category_by_id,
 )
 from deepsearcher.agent.discuss_agent import DiscussAgent
 from deepsearcher.rbase.ai_models import (
@@ -50,6 +53,7 @@ from deepsearcher.rbase.ai_models import (
     initialize_ai_request_by_summary,
 )
 from .metadata import build_metadata
+from deepsearcher.rbase_db_loading import load_articles_by_article_ids
 
 router = APIRouter()
 
@@ -90,7 +94,7 @@ async def api_create_discuss_thread(request: DiscussCreateRequest):
             )
         else:
             # If not exists, create new thread
-            await save_discuss_thread_to_db(discuss_thread)
+            await save_discuss_thread(discuss_thread)
             return DiscussCreateResponse(
                 code=0,
                 message="success",
@@ -138,54 +142,38 @@ async def api_list_discuss(request: DiscussListRequest):
                 ).model_dump()
             )
         
-        # 2. 从数据库获取讨论列表
+        # 2. 获取讨论列表
+        discuss_list = await list_discuss_in_thread(
+            thread_uuid=request.thread_uuid,
+            from_depth=request.from_depth,
+            limit=request.limit,
+            sort_asc=(request.sort == SortType.ASC)
+        )
+        
+        # 3. 构建响应数据
         discuss_entities = []
-        pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
-        async with pool.acquire() as conn:
-            async with conn.cursor() as cursor:
-                # 构建SQL查询
-                sql = """
-                SELECT * FROM discuss 
-                WHERE thread_uuid = %s AND is_hidden = 0 AND status = %s
-                """
-                params = [request.thread_uuid, AIResponseStatus.FINISHED.value]
-                
-                # 添加深度和排序条件
-                if request.sort == SortType.ASC:
-                    sql += " AND depth >= %s ORDER BY depth ASC, created ASC LIMIT %s"
-                else:
-                    sql += " AND depth <= %s ORDER BY depth DESC, created DESC LIMIT %s"
-
-                params.extend([request.from_depth, request.limit])
-                
-                # 执行查询
-                await cursor.execute(sql, params)
-                results = await cursor.fetchall()
-                
-                # 3. 构建响应数据
-                for result in results:
-                    # 创建实体对象
-                    entity = DiscussListEntity(
-                        uuid=result["uuid"],
-                        depth=result["depth"],
-                        content=result["content"],
-                        created=int(result["created"].timestamp()),  # 将datetime转换为整数时间戳
-                        role=result["role"],
-                        is_summary=result["is_summary"],
-                        user_hash=request.user_hash,
-                        user_id=result["user_id"] if result["user_id"] else 0,
-                        user_name=result["user_name"] if "user_name" in result else "",
-                        user_avatar=result["user_avatar"] if "user_avatar" in result else ""
-                    )
-                    discuss_entities.append(entity)
-                
-                # 4. 返回响应
-                return DiscussListResponse(
-                    code=0,
-                    message="success",
-                    count=len(discuss_entities),
-                    discuss_list=discuss_entities
-                )
+        for discuss in discuss_list:
+            entity = DiscussListEntity(
+                uuid=discuss.uuid,
+                depth=discuss.depth,
+                content=discuss.content,
+                created=int(discuss.created.timestamp()) if isinstance(discuss.created, datetime) else discuss.created,
+                role=discuss.role.value,
+                is_summary=discuss.is_summary,
+                user_hash=request.user_hash,
+                user_id=discuss.user_id if discuss.user_id else 0,
+                user_name=discuss.user_name if hasattr(discuss, "user_name") else "",
+                user_avatar=discuss.user_avatar if hasattr(discuss, "user_avatar") else ""
+            )
+            discuss_entities.append(entity)
+        
+        # 4. 返回响应
+        return DiscussListResponse(
+            code=0,
+            message="success",
+            count=len(discuss_entities),
+            discuss_entities=discuss_entities
+        )
                 
     except Exception as e:
         return JSONResponse(
@@ -242,7 +230,7 @@ async def api_post_discuss(request: DiscussPostRequest):
         
         # Create and save discussion content
         discuss = initialize_discuss_by_post_request(request, thread, reply_discuss)
-        content_id = await save_discuss_to_db(discuss)
+        content_id = await save_discuss(discuss)
         if content_id:
             await update_discuss_thread_depth(thread.uuid, discuss.depth, discuss.uuid)
             return DiscussPostResponse(
@@ -326,7 +314,7 @@ async def api_ai_reply_discuss(request: DiscussAIReplyRequest):
         ai_discuss.create_uuid()
         
         # Save empty content, get ID, update content later
-        discuss_id = await save_discuss_to_db(ai_discuss)
+        discuss_id = await save_discuss(ai_discuss)
         ai_discuss.id = discuss_id
         
         # 3. Return streaming response
@@ -382,7 +370,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         background = await get_thread_background(thread)
         
         # Get history records (last 10)
-        history = await get_discuss_history(thread.id, reply_discuss.id, limit=10)
+        history = await get_discuss_thread_history(thread.id, reply_discuss.id, limit=10)
         
         # Create DiscussAgent instance
         discuss_agent = DiscussAgent(
@@ -410,7 +398,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         
         # Update AI discussion status
         ai_discuss.tokens["generating"] = []
-        await save_discuss_to_db(ai_discuss)
+        await save_discuss(ai_discuss)
         
         # Possible user action
         user_action = "浏览学术内容"
@@ -437,7 +425,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
                     # Update content
                     ai_discuss.content += delta.content
                     ai_discuss.tokens["generating"].append(delta.content)
-                    await save_discuss_to_db(ai_discuss)
+                    await save_discuss(ai_discuss)
                     
                     # Build response chunk
                     content_chunk = {
@@ -458,7 +446,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         ai_discuss.status = AIResponseStatus.FINISHED
         if hasattr(discuss_agent, "usage"):
             ai_discuss.usage = discuss_agent.usage
-        await save_discuss_to_db(ai_discuss)
+        await save_discuss(ai_discuss)
         await update_discuss_thread_depth(thread.uuid, ai_discuss.depth, ai_discuss.uuid)
         
         # Send completion marker
@@ -468,7 +456,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         # Error handling
         ai_discuss.content += f"\n\n生成回复时发生错误: {str(e)}"
         ai_discuss.status = AIResponseStatus.ERROR
-        await save_discuss_to_db(ai_discuss)
+        await save_discuss(ai_discuss)
         
         error_chunk = {
             "id": f"chatcmpl-{ai_discuss.id}",
@@ -504,11 +492,11 @@ async def get_thread_background(thread: DiscussThread) -> str:
     try:
         has_summary = await is_thread_has_summary(thread.id)
         if has_summary:
-            background_discuss = await get_discuss_by_thread_uuid(thread.uuid, is_summary=1)
+            background_discuss = await get_discuss_in_thread(thread.uuid, is_summary=1)
             if background_discuss:
                 return background_discuss.content
 
-        if thread.related_type == RelatedType.CHANNEL or thread.related_type == RelatedType.COLUMN:
+        if thread.related_type == RelatedType.CHANNEL:
             channel_id = thread.params.get("channel_id", 0)
             if channel_id:
                 # Try to get channel information from cached AI summary
@@ -529,41 +517,45 @@ async def get_thread_background(thread: DiscussThread) -> str:
                     return ai_response.content
                 
                 # Or get channel basic information directly from database
-                rbase_config = configuration.config.rbase_settings
-                pool = await get_mysql_pool(rbase_config.get("database"))
-                async with pool.acquire() as conn:
-                    async with conn.cursor() as cursor:
-                        sql = "SELECT id, name FROM base WHERE id = %s"
-                        await cursor.execute(sql, (channel_id,))
-                        result = await cursor.fetchone()
-                        if result:
-                            return f"频道: {result['name']}"
+                base = await get_base_by_id(channel_id)
+                if base:
+                   return f"频道: {base.name}"
+        elif thread.related_type == RelatedType.COLUMN:
+            column_id = thread.params.get("column_id", 0)
+            if column_id:
+                # Try to get column information from cached AI summary
+                summary_request = SummaryRequest(
+                    related_type=thread.related_type,
+                    related_id=column_id,
+                    term_tree_node_ids=thread.params.get("term_tree_node_ids", []),
+                    ver=thread.params.get("ver", 0),
+                    depress_cache=DepressCache.DISABLE,
+                    stream=False
+                )
+                metadata = await build_metadata(summary_request.related_type, 
+                                                summary_request.related_id, 
+                                                summary_request.term_tree_node_ids)
+                ai_request = initialize_ai_request_by_summary(summary_request, metadata)
+                ai_response = await get_response_by_request_hash(ai_request.request_hash)
+                if ai_response and ai_response.content:
+                    return ai_response.content
+            
+                # Or get column basic information directly from database
+                base_category = await get_base_category_by_id(column_id)
+                if base_category:
+                   return f"栏目: {base_category.name}"
         elif thread.related_type == RelatedType.ARTICLE:
             article_id = thread.params.get("article_id", 0)
             if article_id:
-                # Get article basic information from database
-                rbase_config = configuration.config.rbase_settings
-                pool = await get_mysql_pool(rbase_config.get("database"))
-                async with pool.acquire() as conn:
-                    async with conn.cursor() as cursor:
-                        sql = """
-                        SELECT title, abstract, journal_name, authors, pubdate
-                        FROM article WHERE id = %s
-                        """
-                        await cursor.execute(sql, (article_id,))
-                        result = await cursor.fetchone()
-                        if result:
-                            authors = result["authors"].split(",")
-                            if len(authors) > 3:
-                                authors = authors[:3] + ["et al."]
-                            pub_year = result["pubdate"].year if hasattr(result["pubdate"], "year") else "未知"
-                            
-                            return (
-                                f"文章标题: {result['title']}\n\n"
-                                f"作者: {', '.join(authors)}\n\n"
-                                f"期刊: {result['journal_name']} ({pub_year})\n\n"
-                                f"摘要: {result['abstract']}"
-                            )
+                articles = await load_articles_by_article_ids([article_id])
+                if len(articles) > 0:
+                    article = articles[0]
+                    return (
+                        f"文章标题: {article.title}\n\n"
+                        f"作者: {', '.join(article.authors)}\n\n"
+                        f"期刊: {article.journal_name} ({article.pubdate.year})\n\n"
+                        f"摘要: {article.abstract}"
+                    )
     except Exception as e:
         raise Exception(f"获取讨论背景信息失败: {e}")
     
