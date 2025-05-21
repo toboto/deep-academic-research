@@ -9,7 +9,7 @@ from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
 from deepsearcher.db.mysql_connection import get_mysql_connection, close_mysql_connection
 from deepsearcher.db.async_mysql_connection import get_mysql_pool
 from deepsearcher.loader.splitter import split_docs_to_chunks
-from deepsearcher.tools.log import warning, error
+from deepsearcher.tools.log import warning, error, debug
 
 def init_vector_db(
     collection_name: str, collection_description: str, force_new_collection: bool = False
@@ -516,24 +516,10 @@ async def load_articles_by_term_ids(term_id_groups: list[list[int]], base_id: in
                 sql += "\n ORDER BY a.pubdate DESC LIMIT %s OFFSET %s"
                 params.append(limit)
                 params.append(offset)
-
-                from deepsearcher.tools.log import debug, dev_mode
-                if dev_mode:
-                    # 将SQL语句和参数拼接成完整的SQL语句，用于调试
-                    debug_sql = sql
-                    for param in params:
-                        # 替换第一个占位符 %s
-                        if isinstance(param, str):
-                            # 字符串类型需要加引号
-                            debug_sql = debug_sql.replace("%s", f"'{param}'", 1)
-                        else:
-                            # 数字类型直接替换
-                            debug_sql = debug_sql.replace("%s", str(param), 1)
-                    debug(f"执行SQL查询: {debug_sql}")
-
                 # Use parameterized query to avoid string formatting issues
                 await cursor.execute(sql, tuple(params))
                 pdf_files = await cursor.fetchall()
+                debug(f"已读取{len(pdf_files)}条文章数据")
     except Exception as e:
         raise Exception(f"Failed to process database data: {e}")
     

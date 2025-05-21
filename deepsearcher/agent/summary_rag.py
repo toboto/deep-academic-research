@@ -9,6 +9,8 @@ from deepsearcher.agent.base import RAGAgent, describe_class
 from deepsearcher.rbase.rbase_article import RbaseArticle
 from deepsearcher.llm.base import BaseLLM
 from deepsearcher.vector_db import RetrievalResult
+from deepsearcher.tools.log import debug
+from deepsearcher import configuration
 
 class SummaryPromptTemplate:
     id = ""
@@ -41,7 +43,7 @@ class SummaryRag(RAGAgent):
     def __init__(self, reasoning_llm: BaseLLM, writing_llm: BaseLLM, **kwargs):
         """初始化总结生成器"""
         super().__init__(**kwargs)
-        self.verbose = False
+        self.verbose = configuration.config.rbase_settings.get("verbose", False)
         self.reasoning_llm = reasoning_llm
         self.writing_llm = writing_llm
         if kwargs.get("target_lang"):
@@ -110,6 +112,8 @@ class SummaryRag(RAGAgent):
         params["query"] = query
         params["articles_info"] = articles_info
         prompt = prompt_template.generate_prompt(user_params=params)
+        if self.verbose:
+            debug(f"prompt: {prompt}")
         
         # 调用LLM生成总结
         return self.writing_llm.stream_generator([{"role": "user", "content": prompt}])
@@ -164,6 +168,7 @@ def _prepare_prompt_templates() -> Dict[str, SummaryPromptTemplate]:
 4. 整体研究价值和重要意义
 5. 引用文章时，使用格式[X]，X为文章列表中的article_id
 
+语言要求：中文
 字数要求：{min_words}-{max_words}字
 
 文章列表：
@@ -181,6 +186,7 @@ Based on the following list of articles, please generate a summary article with 
 4. What is the overall research value and significance?
 5. When citing articles, use the format [X], where X is the article_id in the article list
 
+Language requirement: English
 Word count requirement: {min_words}-{max_words} words
 
 Article list:
@@ -195,6 +201,8 @@ Please generate the summary text directly, without any additional explanations o
 文章列表：
 {articles_info}
 
+语言要求：中文
+
 请直接生成{question_count}个科研问题，每个问题前面有一个序号，不要包含任何额外的说明或格式。""")
 
     id = "channel_question_02"
@@ -203,6 +211,8 @@ The column is about {query} content, and includes the following articles, please
 
 Article list:
 {articles_info}
+
+Language requirement: English
 
 Please generate {question_count} scientific research questions, each with a number in front, without any additional explanations or formats. """)
     return templates
