@@ -172,8 +172,7 @@ class DiscussAgent:
             query=query
         )
         
-        if self.verbose:
-            log.color_print(f"<判断意图> 分析用户问题意图... </判断意图>\n")
+        self._verbose(f"<判断意图> 分析用户问题意图... </判断意图>", debug_msg=f"prompt: {prompt}")
         response = self.reasoning_llm.chat([{"role": "user", "content": prompt}])
         self.usage = response.usage()
         try:
@@ -198,20 +197,10 @@ class DiscussAgent:
             # 第二步：如果需要检索，则从vector_db中检索相关内容
             retrieval_results = []
             if need_search and search_query:
-                if self.verbose:
-                    log.color_print(f"<检索> 正在检索文献，查询语句: '{search_query}' </检索>\n")
+                self._verbose(f"<检索> 正在检索文献，查询语句: '{search_query}' </检索>")
                 
                 # 准备过滤条件
-                filter_str = ""
-                if request_params:
-                    # 这里可以根据request_params构建过滤条件
-                    # 例如时间范围、影响因子等
-                    if "pubdate" in request_params:
-                        filter_str += f"pubdate >= {request_params['pubdate']} "
-                    if "impact_factor" in request_params:
-                        if filter_str:
-                            filter_str += "AND "
-                        filter_str += f"impact_factor >= {request_params['impact_factor']} "
+                filter_str = self._query_filter(request_params)
                 
                 # 执行检索
                 query_vector = self.embedding_model.embed_query(search_query)
@@ -222,10 +211,7 @@ class DiscussAgent:
                     filter=filter_str
                 )
                 
-                if self.verbose:
-                    log.debug(f"检索到 {len(retrieval_results)} 条文献")
-                    if not retrieval_results or len(retrieval_results) == 0:
-                        log.debug(f"未找到相关文献! ")
+                self._verbose(f"<检索> 检索到 {len(retrieval_results)} 条文献")
             
             # 格式化检索结果
             formatted_results = ""
@@ -243,12 +229,32 @@ class DiscussAgent:
                 target_lang=target_lang
             )
             
-            if self.verbose:
-                log.color_print(f"<生成回复> 正在生成回复... </生成回复>\n")
-                log.debug(f"answer_prompt: {answer_prompt}")
-            
+            self._verbose(f"<生成回复> 正在生成回复... </生成回复>", debug_msg=f"answer_prompt: {answer_prompt}")
             return  self.llm.stream_generator([{"role": "user", "content": answer_prompt}])
             
         except json.JSONDecodeError as e:
             log.error(f"解析LLM响应失败: {e}")
             return 
+    
+    def _query_filter(self, request_params: dict) -> str:
+        # 准备过滤条件
+        conditions = []
+        if request_params:
+            # 这里可以根据request_params构建过滤条件
+            # 例如时间范围、影响因子等
+            if "pubdate" in request_params:
+                conditions.append(f"pubdate >= {request_params['pubdate']}")
+            if "impact_factor" in request_params:
+                conditions.append(f"impact_factor >= {request_params['impact_factor']}")
+            if "base_id" in request_params:
+                conditions.append(f"ARRAY_CONTAINS(base_ids, {request_params['base_id']})")
+        if len(conditions) > 0:
+            return " AND ".join(conditions)
+        else:
+            return ""
+    
+    def _verbose(self, msg: str, debug_msg: str = ""):
+        if self.verbose:
+            log.color_print(msg)
+            if debug_msg:
+                log.debug(debug_msg)

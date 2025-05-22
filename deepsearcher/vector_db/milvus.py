@@ -107,6 +107,7 @@ class Milvus(BaseVectorDB):
             )
             schema.add_field("base_ids", DataType.ARRAY, element_type=DataType.INT64, max_capacity=100)
             schema.add_field("impact_factor", DataType.FLOAT)
+            schema.add_field("rbase_factor", DataType.FLOAT)
             schema.add_field("pubdate", DataType.INT64)
             schema.add_field("metadata", DataType.JSON, nullable=True)
             index_params = self.client.prepare_index_params()
@@ -131,6 +132,9 @@ class Milvus(BaseVectorDB):
             )
             index_params.add_index(
                 field_name="impact_factor", index_type="", index_name="impact_factor_idx"
+            )
+            index_params.add_index(
+                field_name="rbase_factor", index_type="", index_name="rbase_factor_idx"
             )
             index_params.add_index(field_name="pubdate", index_type="", index_name="pubdate_idx")
             self.client.create_collection(
@@ -171,6 +175,7 @@ class Milvus(BaseVectorDB):
         keywords_list = [chunk.metadata.get("keywords", []) for chunk in chunks]
         authors_list = [chunk.metadata.get("authors", []) for chunk in chunks]
         author_ids_list = [chunk.metadata.get("author_ids", []) for chunk in chunks]
+        base_ids_list = [chunk.metadata.get("base_ids", []) for chunk in chunks]
         corresponding_authors_list = [
             chunk.metadata.get("corresponding_authors", []) for chunk in chunks
         ]
@@ -178,6 +183,7 @@ class Milvus(BaseVectorDB):
             chunk.metadata.get("corresponding_author_ids", []) for chunk in chunks
         ]
         impact_factor_list = [chunk.metadata.get("impact_factor", 0) for chunk in chunks]
+        rbase_factor_list = [chunk.metadata.get("rbase_factor", 0) for chunk in chunks]
         pubdate_list = [int(chunk.metadata.get("pubdate", 0)) for chunk in chunks]
 
         datas = [
@@ -193,8 +199,10 @@ class Milvus(BaseVectorDB):
                 "corresponding_author_ids": corresponding_author_ids,
                 "impact_factor": impact_factor,
                 "pubdate": pubdate,
+                "rbase_factor": rbase_factor,
+                "base_ids": base_ids,
             }
-            for embedding, text, reference, reference_id, keywords, authors, author_ids, corresponding_authors, corresponding_author_ids, impact_factor, pubdate in zip(
+            for embedding, text, reference, reference_id, keywords, authors, author_ids, corresponding_authors, corresponding_author_ids, impact_factor, pubdate, rbase_factor, base_ids in zip(
                 embeddings,
                 texts,
                 references_list,
@@ -206,6 +214,8 @@ class Milvus(BaseVectorDB):
                 corresponding_author_ids_list,
                 impact_factor_list,
                 pubdate_list,
+                rbase_factor_list,
+                base_ids_list,
             )
         ]
         batch_datas = [datas[i : i + batch_size] for i in range(0, len(datas), batch_size)]
@@ -322,3 +332,35 @@ class Milvus(BaseVectorDB):
             self.client.drop_collection(collection)
         except Exception as e:
             log.warning(f"fail to clear db, error info: {e}")
+
+    def delete_data(self, collection: str, ids: Optional[List[int]] = None, filter: Optional[str] = None, *args, **kwargs) -> int:
+        """
+        Delete data from the specified collection based on the filter.
+
+        Args:
+            collection: Collection name
+            filter: Filter expression in Milvus syntax
+            ids: List of IDs to delete
+
+        Returns:
+            Number of deleted documents
+        """
+        if not ids and not filter:
+            log.warning("no ids or filter provided, skip delete")
+            return 0
+
+        try:
+            if ids:
+                rt = self.client.delete(collection_name=collection, filter=filter, ids=ids)
+            else:
+                rt = self.client.delete(collection_name=collection, filter=filter)
+            return rt.get("delete_count", 0)
+        except Exception as e:
+            log.critical(f"fail to delete data, error info: {e}")
+    
+    def flush(self, collection_name: str, **kwargs):
+        timeout = kwargs.get("timeout", None)
+        self.client.flush(collection_name, timeout)
+        
+    def close(self):
+        self.client.close()

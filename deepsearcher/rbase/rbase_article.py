@@ -37,7 +37,9 @@ class RbaseArticle:
             "source_keywords", ""
         )
         self.mesh_keywords = kwargs.get("mesh_keywords") or article_data.get("mesh_keywords", "")
+        self.base_ids = kwargs.get("base_ids") or article_data.get("base_ids", "")
         self.impact_factor = kwargs.get("impact_factor") or article_data.get("impact_factor", 0)
+        self.rbase_factor = kwargs.get("rbase_factor") or article_data.get("rbase_factor", 0)
         self.pubdate = kwargs.get("pubdate") or article_data.get("pubdate", None)
         if self.pubdate is not None:
             # 将datetime.date类型转换为datetime.datetime，然后获取时间戳
@@ -56,6 +58,7 @@ class RbaseArticle:
         self.abstract = kwargs.get("abstract") or article_data.get("abstract", "")
         self.summary = kwargs.get("summary") or article_data.get("summary", self.abstract)
         self.journal_name = kwargs.get("journal_name") or article_data.get("journal_name", "")
+        self.raw_article_id = kwargs.get("raw_article_id") or article_data.get("raw_article_id", 0)
 
     def set_author(self, author: RbaseAuthor):
         self.author_objects.append(author)

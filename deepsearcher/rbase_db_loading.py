@@ -14,8 +14,14 @@ from deepsearcher.tools.log import warning, error, debug
 def init_vector_db(
     collection_name: str, collection_description: str, force_new_collection: bool = False
 ):
-    vector_db = configuration.vector_db
+    """
+    Initialize vector database collection
 
+    Args:
+        collection_name: Vector database collection name
+        collection_description: Vector database collection description
+    """
+    vector_db = configuration.vector_db
     collection_name = collection_name.replace(" ", "_").replace("-", "_")
     embedding_model = configuration.embedding_model
     vector_db.init_collection(
@@ -25,6 +31,21 @@ def init_vector_db(
         force_new_collection=force_new_collection,
     )
 
+def delete_article_in_vector_db(collection_name: str, article_id: int) -> int:
+    """
+    Delete article from vector database
+
+    Args:
+        collection_name: Vector database collection name
+        article_id: Article ID
+
+    Returns:
+        int: Delete result
+    """
+    vector_db = configuration.vector_db
+    filter = f"reference_id == {article_id}"
+    rt = vector_db.delete_data(collection=collection_name, filter=filter)
+    return rt
 
 def _process_authors(
     cursor, article: RbaseArticle, bypass_rbase_db: bool = False
@@ -200,7 +221,11 @@ def insert_to_vector_db(rbase_config: dict,
     
     # Initialize vector database collection
     init_vector_db(collection_name, collection_description, force_new_collection)
-    
+
+    if not force_new_collection:
+        for article in articles:
+            delete_article_in_vector_db(collection_name, article.article_id)
+
     # Get MySQL connection
     conn = get_mysql_connection(rbase_db_config)
     
@@ -209,7 +234,7 @@ def insert_to_vector_db(rbase_config: dict,
     try:
         with conn.cursor() as cursor:
             # Process each article
-            for article in tqdm(articles, desc="Processing article files"):
+            for article in articles:
                 txt_file_path = article.txt_file
                 
                 # Additional check if txt_file_path is empty or not ending with .md
@@ -286,6 +311,8 @@ def insert_to_vector_db(rbase_config: dict,
                     author_ids = author_ids[:500] if len(author_ids) > 500 else author_ids
                     corresponding_author_names = corresponding_author_names[:40] if len(corresponding_author_names) > 40 else corresponding_author_names
                     corresponding_author_ids = corresponding_author_ids[:100] if len(corresponding_author_ids) > 100 else corresponding_author_ids
+                    base_ids = article.base_ids.split(",")
+                    base_ids = [int(base_id) for base_id in base_ids]
 
                     doc.metadata.update({
                         'title': article.title,
@@ -293,10 +320,12 @@ def insert_to_vector_db(rbase_config: dict,
                         'author_ids': author_ids,
                         'corresponding_authors': corresponding_author_names,
                         'corresponding_author_ids': corresponding_author_ids,
+                        'base_ids': base_ids,
                         'keywords': keywords_list,
                         'pubdate': article.pubdate,
                         'article_id': article.article_id,
                         'impact_factor': article.impact_factor,
+                        'rbase_factor': article.rbase_factor,
                         'reference': f"Article ID: {article.article_id}"
                     })
                 
@@ -317,16 +346,15 @@ def insert_to_vector_db(rbase_config: dict,
             
             # Insert into vector database
             return vector_db.insert_data(collection=collection_name, chunks=chunks)
-            
     except Exception as e:
         # Close connection when exception occurs
         close_mysql_connection()
         raise Exception(f"Failed to process article data: {e}")
 
 
-def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
     """
-    Load article data from Rbase database to vector database
+    Load article data with markdown files from Rbase database to vector database
     
     Args:
         rbase_config: Database configuration dictionary
@@ -344,13 +372,17 @@ def load_from_rbase_db(rbase_config: dict, offset: int = 0, limit: int = 10) -> 
     try:
         with conn.cursor() as cursor:
             sql = """
-            SELECT a.id, a.raw_article_id, a.txt_file, 
-                   a.title, a.authors, a.corresponding_authors,
-                   a.impact_factor, a.source_keywords, a.mesh_keywords, a.pubdate,
-                   a.summary as abstract, a.journal_name
-            FROM article a
-            WHERE a.txt_file IS NOT NULL AND a.txt_file LIKE '%%.md' AND a.base_id=1
-            ORDER BY a.modified DESC LIMIT %s OFFSET %s
+            SELECT ra.id as raw_article_id, ra.txt_file, 
+                   ra.title, ra.authors, ra.corresponding_authors,
+                   ra.impact_factor, ra.source_keywords, ra.mesh_keywords, ra.pubdate,
+                   ra.summary as abstract, ra.journal_name,
+                   GROUP_CONCAT(DISTINCT a.base_id) as base_ids,
+                   MAX(CASE WHEN a.base_id = 1 THEN a.id END) as article_id
+            FROM raw_article ra
+            LEFT JOIN article a ON ra.id = a.raw_article_id
+            WHERE ra.txt_file IS NOT NULL AND ra.txt_file LIKE '%%.md' AND a.status=1
+            GROUP BY ra.id
+            ORDER BY ra.id ASC LIMIT %s OFFSET %s
             """
             # Use parameterized query to avoid string formatting issues
             cursor.execute(sql, (limit, offset))
@@ -559,3 +591,50 @@ async def load_articles_by_article_ids(article_ids: list[int], offset: int = 0, 
         raise Exception(f"Failed to process database data: {e}")
     
     return [RbaseArticle(pdf) for pdf in pdf_files]
+
+def save_vector_db_log(rbase_config: dict, raw_article_id: int, collection_name: str, **kwargs) -> int:
+    """
+    Save vector database log
+
+    Args:
+        rbase_config: Database configuration dictionary
+        raw_article_id: Raw article ID
+        collection_name: Vector database collection name
+        kwargs: Keyword arguments
+
+    Returns:
+        int: Save result
+    """
+    rbase_db_config = rbase_config.get('database', {})
+    conn = get_mysql_connection(rbase_db_config)
+    id_from = kwargs.get('id_from', 0)
+    id_to = kwargs.get('id_to', 0)
+    chunks = id_to - id_from + 1 if id_to > 0 and id_from > 0 else 0
+    operation = kwargs.get('operation', 'insert')
+    if operation == 'insert':
+        operation_val = 1
+    elif operation == 'update':
+        operation_val = 2
+    elif operation == 'delete':
+        operation_val = 3
+    else:
+        operation_val = 0
+    
+    rt = 0
+    try:
+        with conn.cursor() as cursor:
+            sql = """
+            INSERT INTO vector_db_data_log (raw_article_id, collection, id_from, id_to, chunks, operation)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            # Use parameterized query to avoid string formatting issues
+            cursor.execute(sql, (raw_article_id, collection_name, id_from, id_to, chunks, operation_val))
+            rt = cursor.lastrowid
+            conn.commit()
+    except Exception as e:
+        # Close connection when exception occurs
+        close_mysql_connection()
+        raise Exception(f"Failed to process database data: {e}")
+    
+    return rt
+

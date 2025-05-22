@@ -16,7 +16,7 @@ class BaseEmbedding:
         texts = [chunk.text for chunk in chunks]
         batch_texts = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
         embeddings = []
-        for batch_text in tqdm(batch_texts, desc="Embedding chunks"):
+        for batch_text in batch_texts:
             batch_embeddings = self.embed_documents(batch_text)
             embeddings.extend(batch_embeddings)
         for chunk, embedding in zip(chunks, embeddings):

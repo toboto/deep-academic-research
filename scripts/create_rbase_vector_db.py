@@ -6,16 +6,21 @@
 """
 
 import logging
+import argparse
 import os
+from tqdm import tqdm
 
+from deepsearcher import configuration
 from deepsearcher.configuration import Configuration, init_config
-from deepsearcher.rbase_db_loading import insert_to_vector_db, load_from_rbase_db
+from deepsearcher.rbase_db_loading import insert_to_vector_db, load_markdown_articles, save_vector_db_log
+from deepsearcher.tools.log import info
 
 # 抑制不必要的日志输出
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-def main():
+def main(ver: int, env: str, collection_name: str, collection_description: str, 
+         offset: int = 0, limit: int = 10, force_new_collection: bool = False):
     """
     主函数：从Rbase数据库加载文章并存入向量数据库
 
@@ -37,39 +42,75 @@ def main():
 
     # 步骤2：从Rbase数据库加载文章数据到向量数据库
     # 设置向量数据库集合名称和描述
-    collection_name = "test_rag_articles"
-    collection_description = "Academic Research Literature Dataset"
+    embedding_model = config.provide_settings["embedding"]["config"]["model"]
+    # 处理embedding_model字符串，提取模型名称并规范化格式
+    if '/' in embedding_model:
+        embedding_model = embedding_model.split('/')[-1]
+    embedding_model = embedding_model.replace('-', '_').replace('.', '_')
+
+    if not collection_name:
+        collection_name = f"{env}_rbase_{embedding_model}_{ver}"
+    
+    if not collection_description:
+        collection_description = "Academic Research Literature Dataset"
 
     # 从Rbase数据库加载文章数据
     # offset和limit参数用于分页加载数据
-    articles = load_from_rbase_db(config.rbase_settings, offset=0, limit=2000)
+    articles = load_markdown_articles(config.rbase_settings, offset=offset, limit=limit)
 
+    insert_count = 0
+    insert_min_id = 0
+    insert_max_id = 0
     # 步骤3：将文章数据插入到向量数据库
-    insert_result = insert_to_vector_db(
-        rbase_config=config.rbase_settings,  # Rbase配置，包含数据库和OSS配置
-        articles=articles,  # 要插入的文章列表
-        collection_name=collection_name,  # 向量数据库集合名称
-        collection_description=collection_description,  # 集合描述
-        force_new_collection=True,  # 是否强制创建新集合（首次运行时设置为True，之后可设为False）
-    )
+    for article in tqdm(articles, desc="Processing articles"):
+        insert_result = insert_to_vector_db(
+            rbase_config=config.rbase_settings,  # Rbase配置，包含数据库和OSS配置
+            articles=[article],  # 要插入的文章列表
+            collection_name=collection_name,  # 向量数据库集合名称
+            collection_description=collection_description,  # 集合描述
+            force_new_collection=force_new_collection,  # 是否强制创建新集合（首次运行时设置为True，之后可设为False）
+        )
 
-    # 打印插入结果统计
-    if insert_result:
-        # 打印成功插入的数据条数
-        print(f"成功插入数据 {insert_result.get('insert_count', 0)} 条")
-
-        # 打印插入数据的ID范围
-        ids = insert_result.get("ids", [])
-        if ids:
-            min_id = min(ids)
-            max_id = max(ids)
-            print(f"ID范围: {min_id} - {max_id}")
-        else:
-            print("未获取到插入ID")
+        # 打印插入结果统计
+        if insert_result:
+            ids = insert_result.get("ids", [])
+            min_id = min(ids) if ids else 0
+            max_id = max(ids) if ids else 0
+            save_vector_db_log(config.rbase_settings, 
+                               article.raw_article_id, 
+                               collection_name, 
+                               operation='insert',
+                               id_from=min_id,
+                               id_to=max_id)
+            insert_count += insert_result.get('insert_count', 0)
+            insert_min_id = min(insert_min_id, min_id) if insert_min_id else min_id
+            insert_max_id = max(insert_max_id, max_id) if insert_max_id else max_id
 
     # 打印成功信息
-    print(f"成功将Rbase数据库中的文章加载到向量数据库集合 '{collection_name}'")
+    configuration.vector_db.flush(collection_name)
+    info(f"成功将Rbase数据库中的文章加载到向量数据库集合 '{collection_name}'")
+    info(f"成功插入数据 {insert_count} 条，ID范围: {insert_min_id} - {insert_max_id}")
 
+def parse_args():
+    """
+    解析命令行参数
+    
+    Returns:
+        argparse.Namespace: 包含解析后的参数
+    """
+    parser = argparse.ArgumentParser(description='创建Rbase向量数据库')
+    parser.add_argument('--ver', type=int, default=1, help='版本号，默认为1')
+    parser.add_argument('--env', '-e', type=str, default='dev', help='环境，默认为dev')
+    parser.add_argument('--offset', '-t', type=int, default=0, help='偏移量，默认为0')
+    parser.add_argument('--limit', '-l', type=int, default=10, help='限制数量，默认为10')
+    parser.add_argument('--collection_name', '-n', type=str, help='集合名称，默认为None')
+    parser.add_argument('--collection_description', '-d', type=str, default='Academic Research Literature Dataset', 
+                        help='集合描述')
+    parser.add_argument('-f', '--force_new_collection', action='store_true', help='是否强制创建新集合，默认为False')
+    
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args.ver, args.env, args.collection_name, args.collection_description, 
+         args.offset, args.limit, args.force_new_collection)

@@ -18,7 +18,7 @@ from deepsearcher.configuration import Configuration, init_config
 from deepsearcher.tools import log
 from deepsearcher.agent.summary_rag import SummaryRag
 from deepsearcher.rbase.rbase_article import RbaseArticle
-from deepsearcher.rbase_db_loading import load_from_rbase_db
+from deepsearcher.rbase_db_loading import load_markdown_articles
 
 def get_sample_articles(config: Configuration, limit: int = 10) -> List[RbaseArticle]:
     """
@@ -31,7 +31,7 @@ def get_sample_articles(config: Configuration, limit: int = 10) -> List[RbaseArt
         文章列表
     """
     rbase_config = config.rbase_settings
-    articles = load_from_rbase_db(rbase_config, limit=limit)
+    articles = load_markdown_articles(rbase_config, limit=limit)
     
     return articles
 

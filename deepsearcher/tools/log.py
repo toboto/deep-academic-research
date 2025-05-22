@@ -104,15 +104,14 @@ def info(message):
 
     Records general information and captures the caller's filename and line number
     """
-    if dev_mode:
-        caller = inspect.currentframe().f_back
-        dev_logger.info(
-            message,
-            extra={
-                "custom_filename": os.path.basename(caller.f_code.co_filename),
-                "custom_lineno": caller.f_lineno,
-            },
-        )
+    caller = inspect.currentframe().f_back
+    dev_logger.info(
+        message,
+        extra={
+            "custom_filename": os.path.basename(caller.f_code.co_filename),
+            "custom_lineno": caller.f_lineno,
+        },
+    )
 
 
 def warning(message):
@@ -120,15 +119,14 @@ def warning(message):
 
     Records warning information and captures the caller's filename and line number
     """
-    if dev_mode:
-        caller = inspect.currentframe().f_back
-        dev_logger.warning(
-            message,
-            extra={
-                "custom_filename": os.path.basename(caller.f_code.co_filename),
-                "custom_lineno": caller.f_lineno,
-            },
-        )
+    caller = inspect.currentframe().f_back
+    dev_logger.warning(
+        message,
+        extra={
+            "custom_filename": os.path.basename(caller.f_code.co_filename),
+            "custom_lineno": caller.f_lineno,
+        },
+    )
 
 
 def error(message):
@@ -136,16 +134,15 @@ def error(message):
 
     Records error information and captures the caller's filename and line number
     """
-    if dev_mode:
-        caller = inspect.currentframe().f_back
-        dev_logger.error(
-            message,
-            extra={
-                "custom_filename": os.path.basename(caller.f_code.co_filename),
-                "custom_lineno": caller.f_lineno,
-            },
-            exc_info=True,
-        )
+    caller = inspect.currentframe().f_back
+    dev_logger.error(
+        message,
+        extra={
+            "custom_filename": os.path.basename(caller.f_code.co_filename),
+            "custom_lineno": caller.f_lineno,
+        },
+        exc_info=True,
+    )
 
 
 def critical(message):

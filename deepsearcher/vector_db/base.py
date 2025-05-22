@@ -78,3 +78,15 @@ class BaseVectorDB(ABC):
     @abstractmethod
     def clear_db(self, *args, **kwargs):
         pass
+
+    @abstractmethod
+    def delete_data(self, collection: str, *args, **kwargs) -> int:
+        pass
+
+    @abstractmethod
+    def flush(self, collection_name: str, **kwargs):
+        pass
+
+    @abstractmethod
+    def close(self):
+        pass
