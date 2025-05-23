@@ -443,11 +443,17 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         
         # Update final status
         ai_discuss.tokens["generating"] = []
-        ai_discuss.status = AIResponseStatus.FINISHED
+        if ai_discuss.content == "":
+            ai_discuss.status = AIResponseStatus.DEPRECATED
+        else:
+            ai_discuss.status = AIResponseStatus.FINISHED
+
         if hasattr(discuss_agent, "usage"):
             ai_discuss.usage = discuss_agent.usage
         await save_discuss(ai_discuss)
-        await update_discuss_thread_depth(thread.uuid, ai_discuss.depth, ai_discuss.uuid)
+
+        if ai_discuss.status == AIResponseStatus.FINISHED:
+            await update_discuss_thread_depth(thread.uuid, ai_discuss.depth, ai_discuss.uuid)
         
         # Send completion marker
         yield "data: [DONE]\n\n".encode('utf-8')
