@@ -203,7 +203,7 @@ Please generate the summary text directly, without any additional explanations o
 
 语言要求：中文
 
-请直接生成{question_count}个科研问题，每个问题前面有一个序号，不要包含任何额外的说明或格式。""")
+请直接生成{question_count}个科研问题，问题内容的前面无需编写序号，不要包含任何额外的说明或格式。""")
 
     id = "channel_question_02"
     templates[id] = SummaryPromptTemplate(id=id, target="user cared questions about the channel", lang="English", prompt="""
@@ -214,5 +214,5 @@ Article list:
 
 Language requirement: English
 
-Please generate {question_count} scientific research questions, each with a number in front, without any additional explanations or formats. """)
+Please generate {question_count} scientific research questions, without any additional explanations or formats. """)
     return templates

@@ -6,10 +6,13 @@ This module contains functions for building metadata for AI requests.
 
 from typing import List
 from deepsearcher.api.models import RelatedType
+from deepsearcher.rbase.ai_models import DiscussRole
 from deepsearcher.api.rbase_util import (
     get_term_tree_nodes,
     get_base_by_id,
     get_base_category_by_id,
+    get_discuss_thread_by_uuid,
+    get_discuss_thread_history,
 )
 from deepsearcher.rbase_db_loading import load_articles_by_article_ids
 
@@ -63,3 +66,15 @@ async def build_article_metadata(article_id: int, metadata: dict = {}) -> dict:
         metadata["article_title"] = articles[0].title
         metadata["article_abstract"] = articles[0].abstract
     return metadata 
+
+async def build_metadata_by_discuss_thread(thread_uuid: str, metadata: dict = {}) -> dict:
+    """
+    Build metadata for discuss thread.
+    """
+    if not thread_uuid:
+        return metadata
+    thread = await get_discuss_thread_by_uuid(thread_uuid)
+    if thread and thread.depth > 0:
+        discuss_history = await get_discuss_thread_history(thread.id, 0, 3, role=DiscussRole.USER)
+        metadata["user_history"] = discuss_history
+    return metadata

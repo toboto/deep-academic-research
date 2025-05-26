@@ -526,22 +526,27 @@ def _create_query_by_question_request(request: QuestionRequest, metadata: dict =
     Returns:
         str: A query string appropriate for the related type
     """
+    query = ""
     if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
         if metadata.get('column_description'):
-            return f"这是一个{metadata.get('column_description')}，请根据栏目包含的文献内容提出用户可能会关心的科研问题"
+            query = f"这是一个{metadata.get('column_description')}，请根据栏目包含的文献内容提出用户可能会关心的科研问题，并尽可能避免重复用户问过的问题"
         else:
-            return "请根据栏目包含的文献内容提出用户可能会关心的科研问题"
+            query = "请根据栏目包含的文献内容提出用户可能会关心的科研问题，并尽可能避免重复用户问过的问题"
     elif request.related_type == RelatedType.ARTICLE:
         if metadata.get('article_title'):
             query = f"这篇文章标题是：{metadata.get('article_title')}"
             if metadata.get('article_abstract'):
                 query += f"\n摘要：{metadata.get('article_abstract')}\n"
-            query += "\n请根据文章的摘要提出用户可能会关心的科研问题"
-            return query
+            query += "\n请根据文章的摘要提出用户可能会关心的科研问题，并尽可能避免重复用户问过的问题"
         else:
-            return "请根据文章的摘要提出用户可能会关心的科研问题"
+            query = "请根据文章的摘要提出用户可能会关心的科研问题，并尽可能避免重复用户问过的问题"
+
+    if metadata.get('user_history'):
+        query += "\n用户最近的讨论记录：\n" 
+        query += "\n\t".join([f"{item['role']}: {item['content']}" for item in metadata.get('user_history')])
+        query += "\n\n"
     
-    return ""
+    return query
 
 def _create_params_by_question_request(request: QuestionRequest, metadata: dict = {}) -> dict:
     """

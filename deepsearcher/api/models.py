@@ -148,6 +148,10 @@ class QuestionRequest(BaseModel):
         ...,
         description="问题数量"
     )
+    thread_uuid: Optional[str] = Field(
+        None,
+        description="讨论话题UUID"
+    )
 
 
 class QuestionResponse(BaseModel):

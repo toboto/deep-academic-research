@@ -416,7 +416,7 @@ async def get_discuss_in_thread(thread_uuid: str, discuss_uuid: str = None, **kw
     except Exception as e:
         raise Exception(f"Failed to get discuss content list: {e}")
 
-async def get_discuss_thread_history(thread_id: int, reply_id: int, limit: int = 10) -> list:
+async def get_discuss_thread_history(thread_id: int, reply_id: int, limit: int = 10, **kwargs) -> list:
     """
     Get discussion history records
     
@@ -428,17 +428,27 @@ async def get_discuss_thread_history(thread_id: int, reply_id: int, limit: int =
     Returns:
         list: History records list, sorted by time in ascending order, format as [{"role": "user|assistant", "content": "content"}]
     """
+    role = kwargs.get("role", None)
     try:
         pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 # Get history records before current discussion node
+                params = [thread_id, AIResponseStatus.FINISHED.value]
                 sql = """
                 SELECT id, role, content FROM discuss 
-                WHERE thread_id = %s AND id <= %s AND is_hidden = 0 AND status = %s
-                ORDER BY id DESC LIMIT %s
+                WHERE thread_id = %s AND is_hidden = 0 AND status = %s
                 """
-                await cursor.execute(sql, (thread_id, reply_id, AIResponseStatus.FINISHED.value, limit))
+                if reply_id > 0:
+                    sql += " AND id <= %s"
+                    params.append(reply_id)
+                if role:
+                    sql += " AND role = %s"
+                    params.append(role.value)
+
+                sql += "\nORDER BY id DESC LIMIT %s"
+                params.append(limit)
+                await cursor.execute(sql, params)
                 results = await cursor.fetchall()
                 
                 # Convert format and sort by time
