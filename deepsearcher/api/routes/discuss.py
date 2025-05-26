@@ -109,8 +109,9 @@ async def api_create_discuss_thread(request: DiscussCreateRequest):
             content=ExceptionResponse(code=500, message=str(e)).model_dump()
         )
 
-@router.get(
+@router.api_route(
     "/list_discuss",
+    methods=["GET", "POST"],
     summary="List Discussion Topics API",
     description="""
     List discussion topics.
@@ -118,6 +119,7 @@ async def api_create_discuss_thread(request: DiscussCreateRequest):
     - Supports author, topic, and paper related types
     - Optional cache usage
     - Supports streaming response
+    - Supports both GET and POST methods
     """,
 )
 async def api_list_discuss(request: DiscussListRequest):
