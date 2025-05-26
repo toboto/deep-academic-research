@@ -217,6 +217,10 @@ class DiscussCreateResponse(BaseModel):
         ...,
         description="是否存在总结"
     )
+    depth: int = Field(
+        ...,
+        description="深度"
+    )
 
 class DiscussPostRequest(BaseModel):
     """发布讨论内容请求模型"""
