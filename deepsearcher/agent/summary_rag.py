@@ -12,10 +12,18 @@ from deepsearcher.vector_db import RetrievalResult
 from deepsearcher.tools.log import debug
 from deepsearcher import configuration
 
+PROMPT_MATCHES = {
+    "summary_zh":  "channel_summary_01",
+    "summary_en":  "channel_summary_02",
+    "question_zh":  "channel_question_01",
+    "question_en":  "channel_question_02",
+}
+
 class SummaryPromptTemplate:
     id = ""
     lang = "zh"
     target = "summary"
+    purpose = ""
     prompt = ""
 
     def __init__(self, id: str, target: str, lang: str, prompt: str):
@@ -49,7 +57,7 @@ class SummaryRag(RAGAgent):
         if kwargs.get("target_lang"):
             self.target_lang = kwargs.get("target_lang")
         else:
-            self.target_lang = "Chinese"
+            self.target_lang = "zh"
         self.prompt_templates = _prepare_prompt_templates()
 
     def query(
@@ -93,7 +101,12 @@ class SummaryRag(RAGAgent):
             self.verbose = True
         if kwargs.get("target_lang"):
             self.target_lang = kwargs.get("target_lang")
+        if kwargs.get("purpose"):
+            self.purpose = kwargs.get("purpose")
+        else:
+            self.purpose = ""
 
+        prompt_template = self.select_prompt_template(query, self.target_lang, self.purpose)
         # 构建文章信息
         articles_info = []
         for article in articles:
@@ -108,7 +121,6 @@ class SummaryRag(RAGAgent):
             articles_info.append(article_info)
         
         # 构建提示词
-        prompt_template = self.select_prompt_template(query, self.target_lang)
         params["query"] = query
         params["articles_info"] = articles_info
         prompt = prompt_template.generate_prompt(user_params=params)
@@ -118,7 +130,7 @@ class SummaryRag(RAGAgent):
         # 调用LLM生成总结
         return self.writing_llm.stream_generator([{"role": "user", "content": prompt}])
 
-    def select_prompt_template(self, query: str, target_lang: str) -> SummaryPromptTemplate:
+    def select_prompt_template(self, query: str, target_lang: str, purpose: str) -> SummaryPromptTemplate:
         """
         根据用户查询和目标语言选择最合适的提示词模板
 
@@ -129,9 +141,18 @@ class SummaryRag(RAGAgent):
         Returns:
             SummaryPromptTemplate: 选中的提示词模板
         """
+
+        selected_template_id = ""
+        if purpose != "" and target_lang != "":
+            key = f"{purpose}_{target_lang}"
+            selected_template_id = PROMPT_MATCHES.get(key, "")
+
         # 构建模板选择提示词
         templates_info = []
         for template_id, template in self.prompt_templates.items():
+            if template_id == selected_template_id:
+                return template
+
             templates_info.append(f"Template ID: {template_id}\n{template.application_description()}\n")
 
         prompt = f"""请根据以下信息，选择最合适的提示词模板：

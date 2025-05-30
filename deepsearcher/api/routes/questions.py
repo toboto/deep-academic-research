@@ -55,7 +55,7 @@ async def api_generate_questions(request: QuestionRequest):
 
         question_response = QuestionResponse(code=0, message="success")
         if not ai_response:
-            summary = await generate_ai_content(ai_request, request.related_type, None) 
+            summary = await generate_ai_content(ai_request, request.related_type, None, "question") 
             question_response.setQuestions(summary)
         else:
             question_response.setQuestions(ai_response.content)

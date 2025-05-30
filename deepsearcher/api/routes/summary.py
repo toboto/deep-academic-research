@@ -83,7 +83,7 @@ async def api_generate_summary(request: SummaryRequest):
         else:
             resp = SummaryResponse(code=0, message="success")
             if not ai_response:
-                summary = await generate_ai_content(ai_request, request.related_type, request)
+                summary = await generate_ai_content(ai_request, request.related_type, request, "summary")
                 resp.setContent(summary)
             else:
                 await update_ai_content_to_discuss(ai_response, request.discuss_thread_uuid, request.discuss_reply_uuid)
@@ -163,7 +163,7 @@ async def generate_summary_stream(ai_request: AIContentRequest, related_type: Re
     await save_request_to_db(ai_request)
 
     params = {"min_words": 500, "max_words": 800, "question_count": ai_request.params.get("question_count", 3)}
-    for chunk in summary_rag.query_generator(query=ai_request.query, articles=articles, params=params):
+    for chunk in summary_rag.query_generator(query=ai_request.query, articles=articles, params=params, purpose="summary"):
         if hasattr(chunk, "usage") and chunk.usage:
             ai_response.usage = chunk.usage.to_dict()
             await save_response_to_db(ai_response)

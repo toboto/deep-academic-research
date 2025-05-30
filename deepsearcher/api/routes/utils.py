@@ -21,7 +21,7 @@ from deepsearcher.rbase.ai_models import (
     initialize_ai_content_response,
 )
 
-async def generate_ai_content(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest) -> str:
+async def generate_ai_content(ai_request: AIContentRequest, related_type: RelatedType, summary_request: SummaryRequest, purpose: str = "") -> str:
     """
     Create AI content based on the request and related type.
 
@@ -64,6 +64,7 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
         query=ai_request.query,
         articles=articles,
         params=params,
+        purpose=purpose,
         verbose=False,
     )
 
