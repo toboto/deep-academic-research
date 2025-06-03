@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from deepsearcher.api.models import SummaryRequest, QuestionRequest, RelatedType, DiscussCreateRequest, DiscussPostRequest
+from deepsearcher.api.models import SummaryRequest, QuestionRequest, RelatedType, DiscussCreateRequest, DiscussPostRequest, Purpose
 
 class AIContentType(int, Enum):
     """AI内容类型枚举"""
@@ -472,19 +472,40 @@ def _create_query_by_summary_request(request: SummaryRequest, content_type: AICo
         str: A query string appropriate for the related type
     """
     if request.related_type == RelatedType.CHANNEL or request.related_type == RelatedType.COLUMN:
-        if metadata.get('column_description'):
-            return f"这是一个{metadata.get('column_description')}，请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+        if request.purpose == Purpose.POPULAR:
+            purpose_prompt= "请为这个栏目写一个科普介绍"
+        elif request.purpose == Purpose.PPT:
+            purpose_prompt= "请为这个栏目写一个PPT提纲"
+        elif request.purpose == Purpose.FOOTAGE:
+            purpose_prompt= "请为这个栏目写一个视频脚本"
+        elif request.purpose == Purpose.OPPORTUNITY:
+            purpose_prompt= "请结合这个栏目的内容，分析一下这个栏目可能存在的商机"
         else:
-            return "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+            purpose_prompt= "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+        if metadata.get('column_description'):
+            return f"这是一个{metadata.get('column_description')}，{purpose_prompt}"
+        else:
+            return purpose_prompt
     elif request.related_type == RelatedType.ARTICLE:
+        if request.purpose == Purpose.POPULAR:
+            purpose_prompt= "请为这篇文章写一个科普介绍"
+        elif request.purpose == Purpose.PPT:
+            purpose_prompt= "请为这个栏目写一个PPT提纲"
+        elif request.purpose == Purpose.FOOTAGE:
+            purpose_prompt= "请为这个栏目写一个视频脚本"
+        elif request.purpose == Purpose.OPPORTUNITY:
+            purpose_prompt= "请结合这个栏目的内容，分析一下这个栏目可能存在的商机"
+        else:
+            purpose_prompt= "请分析这个栏目收录的这些文章的研究主题和科研成果，给首次来到这个栏目的读者一个阅读指引"
+
         if metadata.get('article_title'):
             query = f"这篇文章标题是：{metadata.get('article_title')}"
             if metadata.get('article_abstract'):
                 query += f"\n摘要：{metadata.get('article_abstract')}\n"
-            query += "请分析这个文章的研究主题和科研成果，给首次来到这个文章的读者一个阅读指引"
+            query += purpose_prompt
             return query
         else:
-            return "请分析这个文章的研究主题和科研成果，给首次来到这个文章的读者一个阅读指引"
+            return purpose_prompt
     
     return ""
 
@@ -513,6 +534,7 @@ def _create_params_by_summary_request(request: SummaryRequest, metadata: dict = 
             "article_id": request.related_id
         }
     params["ver"] = request.ver
+    params["purpose"] = request.purpose.value
     params["term_tree_node_ids"] = request.term_tree_node_ids
     return params
 
@@ -541,11 +563,6 @@ def _create_query_by_question_request(request: QuestionRequest, metadata: dict =
         else:
             query = "请根据文章的摘要提出用户可能会关心的科研问题，并尽可能避免重复用户问过的问题"
 
-    if metadata.get('user_history'):
-        query += "\n用户最近的讨论记录：\n" 
-        query += "\n\t".join([f"{item['role']}: {item['content']}" for item in metadata.get('user_history')])
-        query += "\n\n"
-    
     return query
 
 def _create_params_by_question_request(request: QuestionRequest, metadata: dict = {}) -> dict:
@@ -575,6 +592,7 @@ def _create_params_by_question_request(request: QuestionRequest, metadata: dict 
     params["ver"] = request.ver
     params["term_tree_node_ids"] = request.term_tree_node_ids
     params["question_count"] = request.count
+    params['user_history'] = metadata.get('user_history')
     return params
 
 def initialize_discuss_thread(request: DiscussCreateRequest) -> DiscussThread:

@@ -163,7 +163,7 @@ async def generate_summary_stream(ai_request: AIContentRequest, related_type: Re
     await save_request_to_db(ai_request)
 
     params = {"min_words": 500, "max_words": 800, "question_count": ai_request.params.get("question_count", 3)}
-    for chunk in summary_rag.query_generator(query=ai_request.query, articles=articles, params=params, purpose="summary"):
+    for chunk in summary_rag.query_generator(query=ai_request.query, articles=articles, params=params, purpose=summary_request.purpose.value):
         if hasattr(chunk, "usage") and chunk.usage:
             ai_response.usage = chunk.usage.to_dict()
             await save_response_to_db(ai_response)

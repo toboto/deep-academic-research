@@ -33,6 +33,14 @@ class DepressCache(int, Enum):
     ENABLE = 1  # 禁用缓存
     DISABLE = 0 # 启用缓存
 
+class Purpose(str, Enum):
+    """目的枚举"""
+    SUMMARY = "summary"  # 总结
+    POPULAR = "popular"  # 科普
+    PPT = "ppt"  # PPT提纲
+    FOOTAGE = "footage"  # 视频脚本
+    OPPORTUNITY = "opportunity"  # 商机
+
 
 class SummaryRequest(BaseModel):
     """AI概述接口请求模型"""
@@ -43,6 +51,10 @@ class SummaryRequest(BaseModel):
     related_id: Optional[int] = Field(
         None,
         description="关联ID，可选"
+    )
+    purpose: Optional[Purpose] = Field(
+        Purpose.SUMMARY,
+        description="目的：summary-总结，popular-科普，ppt-PPT提纲，footage-视频脚本，opportunity-商机"
     )
     term_tree_node_ids: Optional[List[int]] = Field(
         None,

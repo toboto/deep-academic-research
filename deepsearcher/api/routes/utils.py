@@ -59,7 +59,9 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
         writing_llm=configuration.writing_llm,
     )
 
-    params = {"min_words": 500, "max_words": 800, "question_count": ai_request.params.get("question_count", 3)}
+    params = {"min_words": 500, "max_words": 800, 
+              "question_count": ai_request.params.get("question_count", 3),
+              "user_history": ai_request.params.get("user_history", "")}
     summary, _, usage = summary_rag.query(
         query=ai_request.query,
         articles=articles,

@@ -17,6 +17,10 @@ PROMPT_MATCHES = {
     "summary_en":  "channel_summary_02",
     "question_zh":  "channel_question_01",
     "question_en":  "channel_question_02",
+    "popular_zh":  "popular_01",
+    "ppt_zh":  "ppt_01",
+    "footage_zh":  "footage_01",
+    "opportunity_zh":  "opportunity_01",
 }
 
 class SummaryPromptTemplate:
@@ -105,7 +109,7 @@ class SummaryRag(RAGAgent):
             self.purpose = kwargs.get("purpose")
         else:
             self.purpose = ""
-
+        
         prompt_template = self.select_prompt_template(query, self.target_lang, self.purpose)
         # 构建文章信息
         articles_info = []
@@ -123,6 +127,7 @@ class SummaryRag(RAGAgent):
         # 构建提示词
         params["query"] = query
         params["articles_info"] = articles_info
+        params = self._format_user_params(params)
         prompt = prompt_template.generate_prompt(user_params=params)
         if self.verbose:
             debug(f"prompt: {prompt}")
@@ -177,6 +182,19 @@ class SummaryRag(RAGAgent):
             
         return self.prompt_templates[selected_template_id] 
 
+    def _format_user_params(self, params: dict) -> dict:
+        history = ""
+        if params.get('user_history'):
+            if self.target_lang == "zh":
+                history += "\n用户最近的讨论记录：\n" 
+            else:
+                history += "\nUser's recent discussion record:\n"
+            history += "\n\t".join([f"{item['role']}: {item['content']}" for item in params.get('user_history')])
+            history += "\n\n"
+        params["user_history"] = history
+        return params
+
+
 def _prepare_prompt_templates() -> Dict[str, SummaryPromptTemplate]:
     templates = {}
     id = "channel_summary_01"
@@ -217,10 +235,13 @@ Please generate the summary text directly, without any additional explanations o
 
     id = "channel_question_01"
     templates[id] = SummaryPromptTemplate(id=id, target="user cared questions about the channel", lang="Chinense", prompt="""
-本栏目是关于{query}的内容，并且包含了以下文章，请以一个思考并提出用户可能会关心的{question_count}个科研问题。
+本栏目是关于{query}的内容，并且包含了以下文章，请以一个思考并提出用户可能会关心的{question_count}个科普性问题。
+科普性问题不宜过长，10-20个字为宜。目标是让用户对栏目内容有一个初步的了解，不需要太深入。
 
 文章列表：
 {articles_info}
+
+{user_history}
 
 语言要求：中文
 
@@ -228,12 +249,75 @@ Please generate the summary text directly, without any additional explanations o
 
     id = "channel_question_02"
     templates[id] = SummaryPromptTemplate(id=id, target="user cared questions about the channel", lang="English", prompt="""
-The column is about {query} content, and includes the following articles, please think of and propose {question_count} scientific research questions that users may care about.
+The column is about {query} content, and includes the following articles, please think of and propose {question_count} popular science questions that users might be interested in.
+The popular science questions should not be too long, 10-20 words is appropriate. The goal is to give users a preliminary understanding of the column content, not too deep.
 
 Article list:
 {articles_info}
 
+{user_history}
+
 Language requirement: English
 
 Please generate {question_count} scientific research questions, without any additional explanations or formats. """)
+
+    id = "popular_01"
+    templates[id] = SummaryPromptTemplate(id=id, target="popular science short article", lang="Chinense", prompt="""
+请根据以下文章列表，生成一篇总科普性短文，文章的目标是：{query}。要求内容包括：
+
+1. 从科普的角度讲解相关问题的基础概念
+2. 内容需要简单，让用户容易理解
+3. 必要的时候可以做一些类比
+4. 引用文章时，使用格式[X]，X为文章列表中的article_id
+
+语言要求：中文
+字数要求：{min_words}-{max_words}字
+
+文章列表：
+{articles_info}
+
+请直接生成科普性短文，不要包含任何额外的说明或格式。 """)
+
+    id = "ppt_01"
+    templates[id] = SummaryPromptTemplate(id=id, target="ppt outline", lang="Chinense", prompt="""
+请根据以下文章列表，生成一篇PPT提纲，文章的目标是：{query}。要求内容包括：
+
+1. 根据文章列表，生成一个PPT提纲
+2. 提纲需要包括PPT的标题、内容等
+
+语言要求：中文
+
+文章列表：
+{articles_info}
+
+请直接生成科普性短文，不要包含任何额外的说明或格式。 """)
+
+    id = "footage_01"
+    templates[id] = SummaryPromptTemplate(id=id, target="footage script", lang="Chinense", prompt="""
+请根据以下文章列表，生成一篇视频脚本，文章的目标是：{query}。要求内容包括：
+
+1. 根据文章列表，生成一个视频脚本
+2. 脚本需要包括视频的标题、内容等
+
+语言要求：中文
+
+文章列表：
+{articles_info}
+
+请直接生成科普性短文，不要包含任何额外的说明或格式。 """)
+
+    id = "opportunity_01"
+    templates[id] = SummaryPromptTemplate(id=id, target="analyze business opportunity", lang="Chinense", prompt="""
+请根据以下文章列表，生成一篇关于科研问题商机的短文，文章的目标是：{query}。要求内容包括：
+
+1. 根据文章列表，分析科研问题可能存在的商机
+
+语言要求：中文
+字数要求：{min_words}-{max_words}字
+
+文章列表：
+{articles_info}
+
+请直接生成科普性短文，不要包含任何额外的说明或格式。 """)
+
     return templates
