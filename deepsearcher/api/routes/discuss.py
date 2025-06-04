@@ -409,7 +409,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         query = reply_discuss.content
         
         # Set request parameters (can be adjusted based on actual needs)
-        request_params = {}
+        request_params = create_discuss_request_params(thread, reply_discuss)
         
         # Call DiscussAgent to generate reply
         for chunk in discuss_agent.query_generator(
@@ -569,3 +569,12 @@ async def get_thread_background(thread: DiscussThread) -> str:
     
     # Return empty background by default
     return "" 
+
+def create_discuss_request_params(thread: DiscussThread, reply_discuss: Discuss) -> dict:
+    """
+    Create request parameters for discussion.
+    """
+    request_params = {}
+    if thread.params.get("channel_id"):
+        request_params["base_id"] = thread.params.get("channel_id")
+    return request_params
