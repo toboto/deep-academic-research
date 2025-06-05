@@ -44,14 +44,12 @@ async def build_metadata_by_related_type(related_type: RelatedType, related_id: 
         base = await get_base_by_id(related_id)
         if base:
             metadata["base_id"] = base.id
-            metadata["column_description"] = f"频道：{base.name}"
-            metadata["column_description"] += f", 内容关于：{desc}"
+            metadata["column_description"] = f"频道：{base.name} 中，内容关于：{desc} 的栏目"
     elif related_type == RelatedType.COLUMN:
         base_category = await get_base_category_by_id(related_id)
         if base_category:
             metadata["base_id"] = base_category.base_id
-            metadata["column_description"] = f"栏目：{base_category.name}, 属于频道：{base_category.base_name}"
-            metadata["column_description"] += f", 内容关于：{desc}"
+            metadata["column_description"] = f"栏目：{base_category.name}, 内容关于：{desc}"
     elif related_type == RelatedType.ARTICLE:
         metadata = await build_article_metadata(related_id, metadata)
     return metadata

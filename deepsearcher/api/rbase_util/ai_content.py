@@ -33,10 +33,10 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
                 response_sql = """
                 SELECT resp.* FROM ai_content_response resp 
                     LEFT JOIN ai_content_request req ON resp.ai_request_id = req.id
-                    WHERE req.request_hash = %s and req.`status` = %s
+                    WHERE req.request_hash = %s and req.`status` = %s AND resp.`status` = %s
                     ORDER BY resp.modified DESC LIMIT 1
                 """
-                await cursor.execute(response_sql, (request_hash, AIRequestStatus.FINISHED.value))
+                await cursor.execute(response_sql, (request_hash, AIRequestStatus.FINISHED.value, AIResponseStatus.FINISHED.value))
                 response_result = await cursor.fetchone()
                 
                 if not response_result:

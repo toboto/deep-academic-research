@@ -360,6 +360,8 @@ def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10,
         rbase_config: Database configuration dictionary
         offset: Query start position
         limit: Query limit count
+        base_id: Base ID
+        doc_rebuild: Whether to rebuild document
         
     Returns:
         List of RbaseArticle objects
