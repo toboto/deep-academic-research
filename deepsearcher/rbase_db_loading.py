@@ -352,7 +352,7 @@ def insert_to_vector_db(rbase_config: dict,
         raise Exception(f"Failed to process article data: {e}")
 
 
-def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10) -> list[RbaseArticle]:
+def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10, **kwargs) -> list[RbaseArticle]:
     """
     Load article data with markdown files from Rbase database to vector database
     
@@ -364,6 +364,9 @@ def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10)
     Returns:
         List of RbaseArticle objects
     """
+    base_id = kwargs.get("base_id", 0)
+    doc_rebuild = kwargs.get("doc_rebuild", False)
+
     # Get MySQL connection
     rbase_db_config = rbase_config.get('database', {})
     conn = get_mysql_connection(rbase_db_config)
@@ -381,9 +384,14 @@ def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10)
             FROM raw_article ra
             LEFT JOIN article a ON ra.id = a.raw_article_id
             WHERE ra.txt_file IS NOT NULL AND ra.txt_file LIKE '%%.md' AND a.status=1
-            GROUP BY ra.id
-            ORDER BY ra.id ASC LIMIT %s OFFSET %s
             """
+            if not doc_rebuild:
+                sql += "\nAND ra.id NOT IN (SELECT raw_article_id FROM vector_db_data_log) "
+            if isinstance(base_id, int) and base_id > 0:
+                sql += f"\nAND a.base_id = {base_id} "
+            sql += """
+            GROUP BY ra.id
+            ORDER BY ra.id ASC LIMIT %s OFFSET %s """
             # Use parameterized query to avoid string formatting issues
             cursor.execute(sql, (limit, offset))
             pdf_files = cursor.fetchall()

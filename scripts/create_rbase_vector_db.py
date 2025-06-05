@@ -19,8 +19,7 @@ from deepsearcher.tools.log import info
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-def main(ver: int, env: str, collection_name: str, collection_description: str, 
-         offset: int = 0, limit: int = 10, force_new_collection: bool = False):
+def main(ver: int, env: str, collection_name: str, offset: int = 0, limit: int = 10, **kwargs):
     """
     主函数：从Rbase数据库加载文章并存入向量数据库
 
@@ -29,6 +28,11 @@ def main(ver: int, env: str, collection_name: str, collection_description: str,
     2. 从Rbase数据库加载文章数据
     3. 将文章数据插入到向量数据库
     """
+    base_id = kwargs.get("base_id", 0)
+    doc_rebuild = kwargs.get("doc_rebuild", False)
+    force_new_collection = kwargs.get("force_new_collection", False)
+    collection_description = kwargs.get("collection_description", None)
+
     # 步骤1：初始化配置
     # 获取当前脚本所在目录，并构建配置文件的路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -56,7 +60,7 @@ def main(ver: int, env: str, collection_name: str, collection_description: str,
 
     # 从Rbase数据库加载文章数据
     # offset和limit参数用于分页加载数据
-    articles = load_markdown_articles(config.rbase_settings, offset=offset, limit=limit)
+    articles = load_markdown_articles(config.rbase_settings, offset=offset, limit=limit, base_id=base_id, doc_rebuild=doc_rebuild)
 
     insert_count = 0
     insert_min_id = 0
@@ -103,6 +107,8 @@ def parse_args():
     parser.add_argument('--env', '-e', type=str, default='dev', help='环境，默认为dev')
     parser.add_argument('--offset', '-t', type=int, default=0, help='偏移量，默认为0')
     parser.add_argument('--limit', '-l', type=int, default=10, help='限制数量，默认为10')
+    parser.add_argument('--base_id', '-b', type=int, default=0, help='基础ID，默认为0')
+    parser.add_argument('--doc_rebuild', '-r', action='store_true', help='是否重建文档，默认为False')
     parser.add_argument('--collection_name', '-n', type=str, help='集合名称，默认为None')
     parser.add_argument('--collection_description', '-d', type=str, default='Academic Research Literature Dataset', 
                         help='集合描述')
@@ -112,5 +118,8 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.ver, args.env, args.collection_name, args.collection_description, 
-         args.offset, args.limit, args.force_new_collection)
+    main(args.ver, args.env, args.collection_name, args.offset, args.limit, 
+        collection_description=args.collection_description,
+        force_new_collection=args.force_new_collection, 
+        doc_rebuild=args.doc_rebuild, 
+        base_id=args.base_id)
