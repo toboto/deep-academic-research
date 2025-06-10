@@ -552,7 +552,7 @@ async def load_articles_by_term_ids(term_id_groups: list[list[int]], base_id: in
                 if len(term_id_groups) > 0:
                     for term_ids in term_id_groups:
                         placeholders = ", ".join(["%s"] * len(term_ids))
-                        sql += f"\n AND EXISTS (SELECT 1 FROM article_label al WHERE al.article_id=a.id AND al.term_id IN ({placeholders}))"
+                        sql += f"\n AND EXISTS (SELECT 1 FROM article_label al WHERE al.status=1 AND al.article_id=a.id AND al.term_id IN ({placeholders}))"
                         params.extend(term_ids)
                 
                 sql += "\n ORDER BY a.pubdate DESC LIMIT %s OFFSET %s"
