@@ -25,6 +25,7 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
     Returns:
         AIContentResponse: Response content object, returns None if not found
     """
+    cache_days = configuration.config.rbase_settings.get("api", {}).get("summary_cache_days", 30)
     try:
         pool = await get_mysql_pool(configuration.config.rbase_settings.get("database"))
         async with pool.acquire() as conn:
@@ -33,10 +34,16 @@ async def get_response_by_request_hash(request_hash: str) -> AIContentResponse:
                 response_sql = """
                 SELECT resp.* FROM ai_content_response resp 
                     LEFT JOIN ai_content_request req ON resp.ai_request_id = req.id
-                    WHERE req.request_hash = %s and req.`status` = %s AND resp.`status` = %s
+                    WHERE req.request_hash = %s AND req.`status` = %s AND resp.`status` = %s
+                          AND resp.created > DATE_SUB(CURDATE(), INTERVAL %s DAY)
                     ORDER BY resp.modified DESC LIMIT 1
                 """
-                await cursor.execute(response_sql, (request_hash, AIRequestStatus.FINISHED.value, AIResponseStatus.FINISHED.value))
+                await cursor.execute(response_sql, (
+                    request_hash, 
+                    AIRequestStatus.FINISHED.value, 
+                    AIResponseStatus.FINISHED.value, 
+                    cache_days
+                    ))
                 response_result = await cursor.fetchone()
                 
                 if not response_result:
