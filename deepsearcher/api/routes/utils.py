@@ -39,15 +39,18 @@ async def generate_ai_content(ai_request: AIContentRequest, related_type: Relate
     ai_response = initialize_ai_content_response(ai_request, ai_request.id)
     response_id = await save_response_to_db(ai_response)
     ai_response.id = response_id
+    article_reference_cnt = configuration.config.rbase_settings.get("api", {}).get("summary_article_reference_cnt", 10)
 
     if related_type == RelatedType.CHANNEL:
         articles = await load_articles_by_channel(
             ai_request.params.get("channel_id", 0), 
-            ai_request.params.get("term_tree_node_ids", []))
+            ai_request.params.get("term_tree_node_ids", []), 
+            0, article_reference_cnt)
     elif related_type == RelatedType.COLUMN:
         articles = await load_articles_by_channel(
             ai_request.params.get("channel_id", 0),
-            ai_request.params.get("term_tree_node_ids", []))
+            ai_request.params.get("term_tree_node_ids", []),
+            0, article_reference_cnt)
     elif related_type == RelatedType.ARTICLE:
         articles = await load_articles_by_article_ids(
             [ai_request.params.get("article_id")])

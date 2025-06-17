@@ -411,6 +411,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
         # Set request parameters (can be adjusted based on actual needs)
         request_params = create_discuss_request_params(thread, reply_discuss)
         
+        chunk_cnt = configuration.config.rbase_settings.get("api", {}).get("discuss_chunk_cnt", 5)
         # Call DiscussAgent to generate reply
         for chunk in discuss_agent.query_generator(
             query=query,
@@ -418,6 +419,7 @@ async def generate_ai_reply_stream(ai_discuss: Discuss, thread: DiscussThread, r
             background=background,
             history=history,
             request_params=request_params,
+            top_k_per_section=chunk_cnt,
         ):
             if len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta

@@ -58,6 +58,7 @@ provide_settings:
 ##      base_url: ""
 
   embedding:
+    on_demand_initialize: false
     provider: "OpenAIEmbedding"
     config:
       model: "text-embedding-ada-002"
@@ -87,6 +88,7 @@ provide_settings:
 # .    api_key: ""   # Uncomment to override the `SILICONFLOW_API_KEY` set in the environment variable   
 
   file_loader:
+    on_demand_initialize: false
     provider: "PDFLoader"
     config: {}
 
@@ -101,6 +103,7 @@ provide_settings:
 #    config: {}
 
   web_crawler:
+    on_demand_initialize: false
     provider: "FireCrawlCrawler"
     config: {}
 
@@ -118,6 +121,7 @@ provide_settings:
 #    config: {}
 
   vector_db:
+    on_demand_initialize: false
     provider: "Milvus"
     config:
       default_collection: "deepsearcher"
@@ -158,3 +162,10 @@ rbase_settings:
   dict_path:
     cn: "database/dicts/rbase_dict_cn.txt"
     en: "database/dicts/rbase_dict_en.txt"
+  api:
+    log_file: "logs/api.log"
+    summary_cache_days: 5
+    summary_article_reference_cnt: 50
+    discuss_chunk_cnt: 20
+    host: "0.0.0.0"
+    port: 8000

@@ -133,7 +133,8 @@ async def generate_summary_stream(ai_request: AIContentRequest, related_type: Re
     if related_type == RelatedType.CHANNEL or related_type == RelatedType.COLUMN:
         articles = await load_articles_by_channel(
             ai_request.params.get("channel_id", 0),
-            ai_request.params.get("term_tree_node_ids", []))
+            ai_request.params.get("term_tree_node_ids", []),
+            0, configuration.config.rbase_settings.get("api", {}).get("summary_article_reference_cnt", 10))
     elif related_type == RelatedType.ARTICLE:
         articles = await load_articles_by_article_ids(
             [ai_request.params.get("article_id")])
