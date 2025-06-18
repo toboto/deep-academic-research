@@ -12,8 +12,8 @@ from tqdm import tqdm
 
 from deepsearcher import configuration
 from deepsearcher.configuration import Configuration, init_config
-from deepsearcher.rbase_db_loading import insert_to_vector_db, load_markdown_articles, save_vector_db_log
-from deepsearcher.tools.log import info
+from deepsearcher.rbase_db_loading import insert_to_vector_db, load_markdown_articles, save_vector_db_log, log_raw_article_deleted
+from deepsearcher.tools.log import info, set_dev_mode, set_level
 
 # 抑制不必要的日志输出
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -57,7 +57,7 @@ def main(ver: int, env: str, collection_name: str, offset: int = 0, limit: int =
     
     if not collection_description:
         collection_description = "Academic Research Literature Dataset"
-
+    
     # 从Rbase数据库加载文章数据
     # offset和limit参数用于分页加载数据
     articles = load_markdown_articles(config.rbase_settings, offset=offset, limit=limit, base_id=base_id, doc_rebuild=doc_rebuild)
@@ -77,6 +77,7 @@ def main(ver: int, env: str, collection_name: str, offset: int = 0, limit: int =
 
         # 打印插入结果统计
         if insert_result:
+            log_raw_article_deleted(config.rbase_settings, article.raw_article_id, collection_name)
             ids = insert_result.get("ids", [])
             min_id = min(ids) if ids else 0
             max_id = max(ids) if ids else 0
@@ -105,7 +106,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='创建Rbase向量数据库')
     parser.add_argument('--ver', type=int, default=1, help='版本号，默认为1')
     parser.add_argument('--env', '-e', type=str, default='dev', help='环境，默认为dev')
-    parser.add_argument('--offset', '-t', type=int, default=0, help='偏移量，默认为0')
+    parser.add_argument('--offset', '-o', type=int, default=0, help='偏移量，默认为0')
     parser.add_argument('--limit', '-l', type=int, default=10, help='限制数量，默认为10')
     parser.add_argument('--base_id', '-b', type=int, default=0, help='基础ID，默认为0')
     parser.add_argument('--doc_rebuild', '-r', action='store_true', help='是否重建文档，默认为False')
@@ -113,11 +114,15 @@ def parse_args():
     parser.add_argument('--collection_description', '-d', type=str, default='Academic Research Literature Dataset', 
                         help='集合描述')
     parser.add_argument('-f', '--force_new_collection', action='store_true', help='是否强制创建新集合，默认为False')
+    parser.add_argument('-v', '--verbose', action='store_true', help='是否打印详细信息，默认为False')
     
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.verbose:
+        set_dev_mode(True)
+        set_level(logging.DEBUG)
     main(args.ver, args.env, args.collection_name, args.offset, args.limit, 
         collection_description=args.collection_description,
         force_new_collection=args.force_new_collection, 

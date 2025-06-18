@@ -2,7 +2,6 @@ import re
 import tempfile
 import os
 from typing import List, Tuple
-from tqdm import tqdm
 
 from deepsearcher import configuration
 from deepsearcher.rbase.rbase_article import RbaseArticle, RbaseAuthor
@@ -382,13 +381,14 @@ def load_markdown_articles(rbase_config: dict, offset: int = 0, limit: int = 10,
                    ra.impact_factor, ra.source_keywords, ra.mesh_keywords, ra.pubdate,
                    ra.summary as abstract, ra.journal_name,
                    GROUP_CONCAT(DISTINCT a.base_id) as base_ids,
-                   MAX(CASE WHEN a.base_id = 1 THEN a.id END) as article_id
+                   MAX(CASE WHEN a.base_id = 1 THEN a.id END) as base_article_id,
+                   MIN(a.id) as article_id
             FROM raw_article ra
             LEFT JOIN article a ON ra.id = a.raw_article_id
             WHERE ra.txt_file IS NOT NULL AND ra.txt_file LIKE '%%.md' AND a.status=1
             """
             if not doc_rebuild:
-                sql += "\nAND ra.id NOT IN (SELECT raw_article_id FROM vector_db_data_log) "
+                sql += "\nAND ra.id NOT IN (SELECT raw_article_id FROM vector_db_data_log WHERE status=1 AND operation=1) "
             if isinstance(base_id, int) and base_id > 0:
                 sql += f"\nAND a.base_id = {base_id} "
             sql += """
@@ -602,6 +602,24 @@ async def load_articles_by_article_ids(article_ids: list[int], offset: int = 0, 
     
     return [RbaseArticle(pdf) for pdf in pdf_files]
 
+def log_raw_article_deleted(rbase_config: dict, raw_article_id: int, collection_name: str) -> int:
+    """
+    Delete raw article from vector database
+    """
+    rbase_db_config = rbase_config.get('database', {})
+    conn = get_mysql_connection(rbase_db_config)
+    try:
+        with conn.cursor() as cursor:
+            sql = "SELECT id_from, id_to FROM vector_db_data_log WHERE raw_article_id=%s AND collection=%s AND operation=1 AND status=1 ORDER BY id DESC"
+            cursor.execute(sql, (raw_article_id, collection_name))
+            result = cursor.fetchone()
+            if result:
+                id_from = result["id_from"]
+                id_to = result["id_to"]
+                save_vector_db_log(rbase_config, raw_article_id, collection_name, operation='delete', id_from=id_from, id_to=id_to)
+    except Exception as e:
+        raise Exception(f"Failed to delete raw article in vector database: {e}")
+
 def save_vector_db_log(rbase_config: dict, raw_article_id: int, collection_name: str, **kwargs) -> int:
     """
     Save vector database log
@@ -634,12 +652,15 @@ def save_vector_db_log(rbase_config: dict, raw_article_id: int, collection_name:
     try:
         with conn.cursor() as cursor:
             sql = """
-            INSERT INTO vector_db_data_log (raw_article_id, collection, id_from, id_to, chunks, operation)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO vector_db_data_log (raw_article_id, collection, id_from, id_to, chunks, operation, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
             # Use parameterized query to avoid string formatting issues
-            cursor.execute(sql, (raw_article_id, collection_name, id_from, id_to, chunks, operation_val))
+            cursor.execute(sql, (raw_article_id, collection_name, id_from, id_to, chunks, operation_val, 1))
             rt = cursor.lastrowid
+            if operation == "insert":
+                sql = "UPDATE vector_db_data_log SET status=0 WHERE raw_article_id=%s AND collection=%s AND operation=%s AND id <> %s"
+                cursor.execute(sql, (raw_article_id, collection_name, operation_val, rt))
             conn.commit()
     except Exception as e:
         # Close connection when exception occurs

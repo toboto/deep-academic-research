@@ -22,11 +22,15 @@ class RbaseArticle:
             article_data = {}
 
         # 从字典或关键字参数中获取属性值
-        self.article_id = (
-            kwargs.get("article_id")
-            or article_data.get("id")
-            or article_data.get("raw_article_id", 0)
-        )
+        self.article_id = kwargs.get("base_article_id") or article_data.get("base_article_id", 0)
+        if self.article_id == 0 or self.article_id is None:
+            self.article_id = (
+                kwargs.get("article_id")
+                or article_data.get("article_id", 0)
+            )
+        if self.article_id == 0 or self.article_id is None:
+            raise Exception(f"article_id is 0, article_data: {article_data}")
+
         self.title = kwargs.get("title") or article_data.get("title", "")
         self.txt_file = kwargs.get("txt_file") or article_data.get("txt_file", "")
         self.authors = kwargs.get("authors") or article_data.get("authors", "")
